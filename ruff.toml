@@ -1,0 +1,7 @@
+# Shared lint/format config. Components run ruff from their own directory; ruff
+# walks up to find this file, so one config covers every component.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]

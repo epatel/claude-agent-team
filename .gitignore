@@ -1,1 +1,24 @@
+# Project-local scratch
 agents-lab/
+
+# Secrets — never commit (see cards/deployment.md)
+.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Per-component virtual envs (see cards/python-venvs.md)
+.venv/
+**/.venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
