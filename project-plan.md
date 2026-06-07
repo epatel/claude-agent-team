@@ -24,7 +24,7 @@ Backward-planned from "a Pi runs unattended, takes chat instructions, and ships
 commits that an extension client has built and tested."
 
 - [x] M0 — Repo + tooling skeleton: package layout, per-component venvs, lint/test, `.env` handling (owner: agent, status: done 2026-06-08)
-- [x] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: agent, status: done 2026-06-08; live run not yet exercised)
+- [x] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: agent, status: done 2026-06-08, live-verified)
 - [ ] M2 — Run uninterrupted on Pi 5: systemd service, restart-on-crash, secrets, session persistence (owner: unassigned, status: not started)
 - [ ] M3 — Chat client: control surface to send instructions, stream agent output, start/stop/steer (owner: unassigned, status: not started)
 - [ ] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: unassigned, status: not started)
@@ -60,9 +60,13 @@ supplies `GITHUB_TOKEN` and guards against API-key billing.
 
 Verified: `make test`/`lint` pass (11 tests). The git orchestration and the
 "one instruction → one commit" / "no changes → no commit" / "refuse dirty tree"
-logic are unit-tested with a fake agent (no network). **Not yet verified: a live
-agent run** — that needs `claude` logged in + network + subscription credits;
-try it with `dev-lab "<instruction>" --repo <clone>`.
+logic are unit-tested with a fake agent (no network). **Live-verified** against a
+throwaway repo with subscription auth (`ANTHROPIC_API_KEY` unset → `claude`
+login): the agent edited inside the workspace and the lab produced a single
+commit on a `lab/…` branch (~$0.13, 2 turns). Note: `agent.py` must use Claude
+Code's `claude_code` system-prompt **preset with `append`** — a bare custom
+`system_prompt` string drops the engine's working-directory context and the
+agent writes files outside the clone.
 
 Next: **M2** — run the lab uninterrupted on the Pi (systemd, restart-on-crash,
 session persistence). Provisioning also needs the Claude Code CLI on the host

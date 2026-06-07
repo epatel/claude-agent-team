@@ -21,10 +21,14 @@ from claude_agent_sdk import (
 # File + search + shell, scoped to the workspace via ``cwd``.
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
-_SYSTEM_PROMPT = (
+# Appended to Claude Code's built-in preset so the engine still injects the
+# working-directory / environment context (a bare custom prompt drops it, and the
+# agent then writes files outside the workspace).
+_SYSTEM_APPEND = (
     "You are an autonomous software developer working inside a git repository. "
-    "Carry out the user's instruction by editing files directly in the working "
-    "tree. Keep changes minimal and focused on what was asked. "
+    "Carry out the user's instruction by editing files in the current working "
+    "directory, using paths relative to it — never write outside the working "
+    "directory. Keep changes minimal and focused on what was asked. "
     "Do NOT run `git commit`, `git push`, or any git history/remote command — the "
     "lab handles commits and pushes. You may use other shell commands as needed."
 )
@@ -56,7 +60,7 @@ async def run_task(
         model=model,
         allowed_tools=DEFAULT_TOOLS,
         permission_mode="bypassPermissions",
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt={"type": "preset", "preset": "claude_code", "append": _SYSTEM_APPEND},
         max_turns=max_turns,
         effort=effort,
     )
