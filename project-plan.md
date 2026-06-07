@@ -24,7 +24,7 @@ Backward-planned from "a Pi runs unattended, takes chat instructions, and ships
 commits that an extension client has built and tested."
 
 - [x] M0 — Repo + tooling skeleton: package layout, per-component venvs, lint/test, `.env` handling (owner: agent, status: done 2026-06-08)
-- [ ] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: unassigned, status: not started)
+- [x] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: agent, status: done 2026-06-08; live run not yet exercised)
 - [ ] M2 — Run uninterrupted on Pi 5: systemd service, restart-on-crash, secrets, session persistence (owner: unassigned, status: not started)
 - [ ] M3 — Chat client: control surface to send instructions, stream agent output, start/stop/steer (owner: unassigned, status: not started)
 - [ ] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: unassigned, status: not started)
@@ -40,26 +40,33 @@ Each line is a settled choice no agent should reopen without flagging here.
 - 2026-06-08 — **Python + per-component venvs** for the toolchain.
 - 2026-06-08 — Default model is **`claude-opus-4-8`** with adaptive thinking.
 - 2026-06-08 — The lab authenticates via a **Claude subscription** through a one-time interactive `claude` login (credentials persist in `~/.claude` and auto-refresh), **not** an API key or a token in `.env`; `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` must stay unset (they override it and bill the API).
+- 2026-06-08 — Agent SDK package is **`claude-agent-sdk`** (0.2.x, Python). The agent runs with `permission_mode=bypassPermissions` and a workspace-scoped tool set (Read/Write/Edit/Glob/Grep/Bash); the **lab owns commits**, the agent is told not to touch git. Runtime requires the Claude Code CLI on the host.
 - 2026-06-08 — Documentation follows the memention.net **Context Cards** + **Shared Project Plan** patterns; feature-first / two-tier deferred until code exists.
 
 ## Current state / handoff
 
-**M0 done.** The repo has three components — `dev-lab/`, `chat-client/`,
-`extensions/macos-build-test/` — each a `src`-layout Python package with its own
-`pyproject.toml`, a runnable stub entry point, and a smoke test. A root
-`Makefile` drives per-component venvs (`make setup|test|lint|fmt|clean`); lint is
-ruff, tests are pytest. `.env` handling lives in `dev-lab/config.py` (loads a
-gitignored `dev-lab/.env`, validates `GITHUB_TOKEN`, and refuses to start if
-`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` is set so it can't silently bill the
-API). Claude auth is a one-time `claude` login (credentials in `~/.claude`, no
-token in `.env`) — see `cards/subscription-auth.md`. Verified: `make
-setup`/`test`/`lint` all pass (6 tests), all three stubs run, venvs and `.env`
-are gitignored. Nothing committed yet.
+**M0 + M1 done** (M0 committed on branch `m0-skeleton`; M1 changes uncommitted).
 
-Next agent picks up **M1** — implement the minimal dev-lab agent loop. First
-resolve the open question on the exact Claude Agent SDK package name/version,
-add it to `dev-lab/pyproject.toml`, then drive: one instruction → one commit in a
-local git clone.
+Repo has three `src`-layout components — `dev-lab/`, `chat-client/`,
+`extensions/macos-build-test/` — each with its own venv and `pyproject.toml`. A
+root `Makefile` drives per-component venvs (`make setup|test|lint|fmt|clean`);
+lint is ruff, tests are pytest.
+
+**dev-lab (M1):** `workspace.py` (git wrapper), `agent.py` (Claude Agent SDK
+loop — `bypassPermissions`, workspace-scoped tools), `lab.py` (`run_once`:
+clean-tree check → work branch → agent edits → one commit), and a real CLI
+(`dev-lab "<instruction>" --repo <path>`). Auth is the `claude` login; config
+supplies `GITHUB_TOKEN` and guards against API-key billing.
+
+Verified: `make test`/`lint` pass (11 tests). The git orchestration and the
+"one instruction → one commit" / "no changes → no commit" / "refuse dirty tree"
+logic are unit-tested with a fake agent (no network). **Not yet verified: a live
+agent run** — that needs `claude` logged in + network + subscription credits;
+try it with `dev-lab "<instruction>" --repo <clone>`.
+
+Next: **M2** — run the lab uninterrupted on the Pi (systemd, restart-on-crash,
+session persistence). Provisioning also needs the Claude Code CLI on the host
+(the SDK drives it, and it provides the `claude` login).
 
 ## Open questions
 
@@ -71,4 +78,3 @@ local git clone.
 - Secrets management on the Pi for the GitHub token (Claude auth is the one-time `claude` login stored in `~/.claude`, no secret in `.env`).
 - The systemd service must run as the user who ran `claude` login (credentials are user-scoped in `~/.claude`), or set `CLAUDE_CONFIG_DIR` to that user's config dir.
 - Confirm the Claude plan tier: Opus (`claude-opus-4-8`) needs a **Max** plan; subscription Agent SDK usage draws from a separate monthly credit pool (effective 2026-06-15) and is personal-use only under Anthropic's ToS.
-- Confirm the exact PyPI package name/version for the Claude Agent SDK before M1.

@@ -34,6 +34,9 @@ flowchart TB
 - **Service user** — credentials are user-scoped in `~/.claude`, so the service
   must run as the user who ran `claude` login, or set `CLAUDE_CONFIG_DIR` to that
   user's config dir.
+- **Claude Code CLI** — the Agent SDK drives the `claude` CLI engine, so the
+  host needs Claude Code installed (it also provides the `claude` login). Install
+  it as part of provisioning the Pi.
 - **Session persistence** — for long tasks to survive restarts, session/context
   state must be stored on disk (open question in the plan).
 - **Resource limits** — the Pi is small; mind memory/CPU for the agent process

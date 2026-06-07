@@ -4,13 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dev-lab"
-version = "0.0.1"
+version = "0.1.0"
 description = "Always-on Claude Agent SDK dev lab (runs on the Raspberry Pi 5)."
 requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.0",
-    # TODO(M1): add the Claude Agent SDK — confirm exact package name/version.
-    # See open questions in project-plan.md.
+    "claude-agent-sdk>=0.2.93,<0.3",
 ]
 
 [project.optional-dependencies]
