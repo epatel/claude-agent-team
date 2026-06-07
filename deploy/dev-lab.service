@@ -1,0 +1,32 @@
+# systemd unit for the always-on dev lab supervisor (see cards/deployment.md).
+# Copy to /etc/systemd/system/dev-lab.service, edit the paths/user, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dev-lab
+#   journalctl -u dev-lab -f          # follow logs
+#
+# Submit work to the running supervisor:
+#   dev-lab submit "<instruction>" --queue /home/pi/claude-agent-team/dev-lab-queue
+
+[Unit]
+Description=claude-agent-team dev lab supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# MUST be the user that ran `claude` login — subscription credentials live in
+# that user's ~/.claude (see cards/subscription-auth.md).
+User=pi
+WorkingDirectory=/home/pi/claude-agent-team
+# Only GITHUB_TOKEN lives here (chmod 600). Claude auth is the `claude` login.
+# Do NOT put ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN here — they override
+# subscription auth and bill the API.
+EnvironmentFile=/home/pi/claude-agent-team/dev-lab/.env
+ExecStart=/home/pi/claude-agent-team/dev-lab/.venv/bin/dev-lab serve \
+  --repo /home/pi/work/target-repo \
+  --queue /home/pi/claude-agent-team/dev-lab-queue
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

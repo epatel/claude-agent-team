@@ -27,5 +27,6 @@ self-contained.
 ### Decisions
 - [claude-agent-sdk-self-hosted](cards/claude-agent-sdk-self-hosted.md) — why self-hosted SDK and not Managed Agents
 - [subscription-auth](cards/subscription-auth.md) — auth via Claude subscription not API key, OAuth token, the API-key trap
+- [sqlite-runtime-data](cards/sqlite-runtime-data.md) — durable runtime data (run history, chat logs) in SQLite with migrations
 - [mcp-for-extensions](cards/mcp-for-extensions.md) — why extension capabilities are MCP servers
 - [python-venvs](cards/python-venvs.md) — Python + per-component venv layout

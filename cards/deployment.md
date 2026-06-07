@@ -22,7 +22,11 @@ flowchart TB
 ## Key concerns
 
 - **Supervision** — a `systemd` unit with restart-on-failure and start-on-boot is
-  the baseline for "runs uninterrupted." Logs to journald for observability.
+  the baseline for "runs uninterrupted." Logs to journald for observability. The
+  unit file and provisioning steps live in `deploy/`.
+- **Supervisor + queue** — `dev-lab serve --repo <clone> --queue <dir>` drains a
+  file-backed job queue (`pending/running/done/failed`) one job at a time and
+  requeues any in-flight job on restart. Submit work with `dev-lab submit`.
 - **Per-component venvs** — the lab, and any co-located tooling, each get their
   own venv (a settled toolchain decision; see the index in CLAUDE.md).
 - **Credentials** — the Claude subscription is authenticated by a one-time
@@ -37,8 +41,11 @@ flowchart TB
 - **Claude Code CLI** — the Agent SDK drives the `claude` CLI engine, so the
   host needs Claude Code installed (it also provides the `claude` login). Install
   it as part of provisioning the Pi.
-- **Session persistence** — for long tasks to survive restarts, session/context
-  state must be stored on disk (open question in the plan).
+- **Durability** — the file-backed job queue persists pending work across
+  restarts, and a job interrupted by a crash is requeued. Durable run history /
+  logs (and future chat logs) use SQLite with a migration path (a settled data
+  decision; see the index in CLAUDE.md). SDK session-resume for a single long
+  task is still open (see the plan).
 - **Resource limits** — the Pi is small; mind memory/CPU for the agent process
   and avoid heavy local builds (those go to extension clients).
 
