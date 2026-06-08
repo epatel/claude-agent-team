@@ -163,6 +163,7 @@ async function openProject(id) {
   $("#active-branch").textContent = p.branch || "";
   $("#chat-form").hidden = false;
   $("#browse-btn").hidden = false;
+  $("#fetch-btn").hidden = false;
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
   $("#merge-base-btn").hidden = false;
@@ -261,6 +262,18 @@ function systemLine(text, bad) {
   $("#transcript").appendChild(div);
   scrollBottom();
 }
+
+$("#fetch-btn").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  withButton($("#fetch-btn"), "fetching", async () => {
+    try {
+      const r = await api(`/api/projects/${state.activeId}/fetch`, { method: "POST" });
+      systemLine(`✓ fetched ${r.base} @ ${r.commit.slice(0, 10)}`);
+    } catch (err) {
+      systemLine(`✗ fetch failed: ${err.message}`, true);
+    }
+  });
+});
 
 $("#pull-btn").addEventListener("click", () => {
   if (state.activeId == null) return;

@@ -272,6 +272,16 @@ def build_app(
         await bus.publish({"type": "projects_changed"})
         return result
 
+    @app.post("/api/projects/{project_id}/fetch")
+    async def fetch_project(project_id: int, request: Request) -> dict:
+        current_user(request)
+        try:
+            result = await pm.fetch_base(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
     @app.get("/api/projects/{project_id}/branches")
     async def list_branches(project_id: int, request: Request) -> dict:
         current_user(request)

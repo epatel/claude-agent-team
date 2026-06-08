@@ -246,6 +246,16 @@ class ProjectManager:
             commit = ws.push(base)
         return {"base": base, "commit": commit}
 
+    async def fetch_base(self, project_id: int) -> dict:
+        """Fetch the project's base branch from origin (updates the tracking ref only)."""
+        session = self.open(project_id)
+        ws = session.workspace
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            base = self._base_branch(ws, project_id)
+            commit = ws.fetch(base)
+        return {"base": base, "commit": commit}
+
     def _workspace(self, project_id: int) -> Workspace:
         """A bare ``Workspace`` for a project (read-only inspection helpers)."""
         row = db.get_project(self.conn, project_id)
