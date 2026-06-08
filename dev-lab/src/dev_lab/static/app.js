@@ -140,10 +140,66 @@ async function openProject(id) {
   const t = $("#transcript");
   t.innerHTML = "";
   setStatus("idle");
+  loadBaseBranches(id);
   const msgs = await api(`/api/projects/${id}/messages`);
   for (const m of msgs) addMessage(m.role, m.content);
   $("#chat-text").focus();
 }
+
+/* ---------- base branch (for new chat threads) ---------- */
+const baseSelect = $("#base-select");
+const basePicker = $("#base-picker");
+
+async function loadBaseBranches(id) {
+  basePicker.hidden = true;
+  try {
+    const { branches, base } = await api(`/api/projects/${id}/branches`);
+    if (state.activeId !== id) return; // user switched projects mid-fetch
+    baseSelect.innerHTML = "";
+    for (const b of branches) {
+      const opt = document.createElement("option");
+      opt.value = b;
+      opt.textContent = b;
+      if (b === base) opt.selected = true;
+      baseSelect.appendChild(opt);
+    }
+    baseSelect.dataset.current = base || "";
+    basePicker.hidden = false;
+  } catch {
+    /* leave the picker hidden if branches can't be fetched */
+  }
+}
+
+// Same no-double-submit pattern as withButton (cards/no-double-submit.md): a busy
+// flag guards re-entry, the control is disabled, and the wrapper shows a spinner;
+// always restored in finally. A <select> swaps no label, so we guard it directly.
+baseSelect.addEventListener("change", async () => {
+  if (state.activeId == null || baseSelect.dataset.busy === "1") return;
+  const id = state.activeId;
+  const name = baseSelect.value;
+  const previous = baseSelect.dataset.current || "";
+  if (name === previous) return;
+  baseSelect.dataset.busy = "1";
+  baseSelect.disabled = true;
+  basePicker.classList.add("is-loading");
+  try {
+    const r = await api(`/api/projects/${id}/base`, {
+      method: "POST",
+      body: JSON.stringify({ branch: name }),
+    });
+    baseSelect.dataset.current = r.base_branch;
+    const p = state.projects.find((x) => x.id === id);
+    if (p) p.base_branch = r.base_branch;
+    systemLine(`✓ base set to ${r.base_branch} — applies to new chat threads, not this one`);
+  } catch (err) {
+    baseSelect.value = previous; // revert the dropdown to the last good base
+    systemLine(`✗ set base failed: ${err.message}`, true);
+  } finally {
+    delete baseSelect.dataset.busy;
+    baseSelect.disabled = false;
+    basePicker.classList.remove("is-loading");
+  }
+});
 
 function setStatus(s) {
   const el = $("#active-status");

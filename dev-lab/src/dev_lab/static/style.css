@@ -171,6 +171,35 @@ input:focus, textarea:focus {
   padding: 16px 24px; border-bottom: 1px solid var(--line);
 }
 .head-left { display: flex; align-items: center; gap: 12px; }
+.base-picker[hidden] { display: none; }
+.base-picker {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: .03em;
+  color: var(--muted);
+}
+.base-label { color: var(--muted); }
+.base-select {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .03em;
+  color: var(--accent);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 180px;
+}
+.base-select:hover { border-color: var(--accent-dim); }
+.base-select:disabled { cursor: progress; }
+.base-picker.is-loading { pointer-events: none; opacity: .9; }
+.base-picker.is-loading::before {
+  content: "";
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin .65s linear infinite;
+}
 .head-right { display: flex; align-items: center; gap: 14px; }
 .merge-btn { font-size: 11px; padding: 6px 12px; }
 .sys { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; padding: 4px 0; }
