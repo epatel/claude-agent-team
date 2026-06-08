@@ -234,3 +234,20 @@ def list_messages(
             (project_id, limit),
         )
     )
+
+
+def clear_messages(conn: sqlite3.Connection, project_id: int) -> int:
+    """Delete every message for a project; return how many rows were removed."""
+    cur = conn.execute("DELETE FROM messages WHERE project_id = ?", (project_id,))
+    conn.commit()
+    return cur.rowcount
+
+
+def clear_session(conn: sqlite3.Connection, project_id: int) -> None:
+    """Forget a project's resumed SDK session so the next turn starts fresh.
+
+    ``update_project`` skips ``None`` values (it can't tell "leave alone" from
+    "set to NULL"), so clearing ``last_session_id`` needs its own statement.
+    """
+    conn.execute("UPDATE projects SET last_session_id = NULL WHERE id = ?", (project_id,))
+    conn.commit()
