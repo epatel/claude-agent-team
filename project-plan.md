@@ -59,8 +59,8 @@ auth, and a vanilla web UI (login + project sidebar + chat with markdown/mermaid
 — live-verified end-to-end (login → clone project → cookie-authed WebSocket chat
 → streamed tool+markdown+mermaid → commit → per-project persistence). New files:
 `projects.py`, `auth.py`, `web.py`, `static/`; new command `dev-lab web`; SQLite
-migrations #2 (projects/messages) and #3 (users). Neither branch merged to
-`main`.
+migrations #2 (projects/messages) and #3 (users). **Merged to `main`** (2026-06-08,
+fast-forward) — `main` now carries the full history (M0–M4 + v2).
 
 Repo has three `src`-layout components — `dev-lab/`, `chat-client/`,
 `extensions/macos-build-test/` — each with its own venv and `pyproject.toml`. A

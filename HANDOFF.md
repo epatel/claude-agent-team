@@ -15,10 +15,11 @@ An always-on Claude Agent SDK "dev lab". Two surfaces:
   queue, extension MCP build/test. M0–M4 done and live-verified.
 
 **What's left:** TLS/reverse-proxy for the web console, real-Pi deployment, GitHub
-push (see gaps), and merging branches to `main`. ~62 tests pass, ruff clean.
+push (see gaps). ~62 tests pass, ruff clean.
 
-Git: M0–M4 on **`m0-skeleton`**; the v2 web console on **`v2-web-console`**
-(branched off it). **Neither merged to `main`.**
+Git: all work is merged into **`main`** (fast-forward; the `m0-skeleton` and
+`v2-web-console` branches are now redundant and can be deleted). Nothing is
+pushed to a remote yet.
 
 ## Architecture (as built)
 
@@ -148,7 +149,7 @@ not an env var.
   scratch on a fresh branch).
 
 ### Housekeeping
-- Merge `m0-skeleton` → `main` (branch name is stale — it carries M0–M4).
+- Delete the merged `m0-skeleton` / `v2-web-console` branches; set up a remote and push.
 
 ## Gotchas the next agent must know
 
