@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "macos-build-test"
-version = "0.0.1"
+version = "0.1.0"
 description = "Extension client: an MCP server exposing build/test capabilities on macOS."
 requires-python = ">=3.11"
 dependencies = [
-    # TODO(M4): add the MCP server library — see cards/extension-clients.md
-    # and open questions in project-plan.md.
+    "mcp>=1.0,<2",
 ]
 
 [project.optional-dependencies]

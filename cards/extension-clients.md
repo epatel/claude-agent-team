@@ -6,10 +6,15 @@ Capability providers on other machines — MCP servers that give the Pi powers i
 
 - Run an MCP server on a machine that has a capability the Pi doesn't (e.g. a
   macOS host for macOS builds/tests, or any platform-specific toolchain).
-- Expose that capability as MCP tools (e.g. `build`, `run_tests`,
-  `lint_platform`) the lab's agent can call.
+- Expose that capability as MCP tools the lab's agent can call.
 - Operate on the same code the lab produced by checking out the relevant commit
   from GitHub (a code-synchronization concern).
+
+The first implementation, `extensions/macos-build-test`, is a FastMCP server
+(`macos-build-test serve --host --port`) exposing `run_tests` and `build` —
+each clones a repo, checks out a ref, runs a command, and returns
+`{ok, returncode, stdout, stderr}`. The lab is pointed at extensions via its
+`EXTENSIONS=name=url` env (the agent gets each as an `mcp__<name>` toolset).
 
 ## Flow
 

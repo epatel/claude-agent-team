@@ -60,7 +60,11 @@ async def run_once(
     branch = f"{branch_prefix}{int(time.time())}-{_slugify(instruction)}"
     ws.create_branch(branch)
 
-    extra = {"on_event": on_event} if on_event is not None else {}
+    extra: dict = {}
+    if on_event is not None:
+        extra["on_event"] = on_event
+    if config.extensions:
+        extra["extensions"] = config.extensions
     agent_result = await run_task(instruction, cwd=ws.path, model=config.model, **extra)
 
     commit_sha: str | None = None

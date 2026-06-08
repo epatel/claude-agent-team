@@ -4,7 +4,7 @@ from dev_lab.config import load_config
 
 
 def _clear_auth_env(monkeypatch):
-    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "MODEL"):
+    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "MODEL", "EXTENSIONS"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -37,3 +37,20 @@ def test_load_config_rejects_api_key(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         load_config()
+
+
+def test_load_config_parses_extensions(monkeypatch):
+    _clear_auth_env(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("EXTENSIONS", "macos=http://h:1/sse, other=http://h:2/sse")
+
+    cfg = load_config()
+
+    assert cfg.extensions == {"macos": "http://h:1/sse", "other": "http://h:2/sse"}
+
+
+def test_load_config_no_extensions_is_empty(monkeypatch):
+    _clear_auth_env(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+
+    assert load_config().extensions == {}

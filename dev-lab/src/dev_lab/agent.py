@@ -43,6 +43,33 @@ class AgentResult:
     total_cost_usd: float | None
 
 
+def build_agent_options(
+    *,
+    cwd: str | Path,
+    model: str,
+    max_turns: int = 40,
+    effort: str = "high",
+    extensions: dict[str, str] | None = None,
+) -> ClaudeAgentOptions:
+    """Build the SDK options, wiring any extension MCP servers (HTTP+SSE) as tools."""
+    allowed = list(DEFAULT_TOOLS)
+    mcp_servers: dict[str, dict] = {}
+    for name, url in (extensions or {}).items():
+        mcp_servers[name] = {"type": "sse", "url": url}
+        allowed.append(f"mcp__{name}")  # allow all tools from this extension server
+
+    return ClaudeAgentOptions(
+        cwd=str(cwd),
+        model=model,
+        allowed_tools=allowed,
+        permission_mode="bypassPermissions",
+        system_prompt={"type": "preset", "preset": "claude_code", "append": _SYSTEM_APPEND},
+        max_turns=max_turns,
+        effort=effort,
+        mcp_servers=mcp_servers,
+    )
+
+
 async def run_task(
     instruction: str,
     *,
@@ -50,23 +77,18 @@ async def run_task(
     model: str,
     max_turns: int = 40,
     effort: str = "high",
+    extensions: dict[str, str] | None = None,
     on_event: Callable[[dict], Awaitable[None]] | None = None,
 ) -> AgentResult:
     """Run the agent loop for one instruction in ``cwd``; return a result summary.
 
     Uses ``bypassPermissions`` so the unattended lab does not block on approval
-    prompts; the tool set and ``cwd`` bound what the agent can touch. If
-    ``on_event`` is given, each assistant text block is streamed to it as
-    ``{"type": "agent_message", "text": ...}``.
+    prompts; the tool set and ``cwd`` bound what the agent can touch. ``extensions``
+    (name -> SSE URL) are attached as MCP tool servers. If ``on_event`` is given,
+    each assistant text block is streamed to it as ``{"type": "agent_message", ...}``.
     """
-    options = ClaudeAgentOptions(
-        cwd=str(cwd),
-        model=model,
-        allowed_tools=DEFAULT_TOOLS,
-        permission_mode="bypassPermissions",
-        system_prompt={"type": "preset", "preset": "claude_code", "append": _SYSTEM_APPEND},
-        max_turns=max_turns,
-        effort=effort,
+    options = build_agent_options(
+        cwd=cwd, model=model, max_turns=max_turns, effort=effort, extensions=extensions
     )
 
     summary_parts: list[str] = []

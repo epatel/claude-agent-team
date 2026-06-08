@@ -14,7 +14,7 @@ missing GitHub token.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -33,6 +33,22 @@ _CONFLICTING = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 class Config:
     github_token: str
     model: str = "claude-opus-4-8"
+    # name -> MCP SSE URL of an extension client (e.g. macos build/test).
+    extensions: dict[str, str] = field(default_factory=dict)
+
+
+def _parse_extensions(raw: str | None) -> dict[str, str]:
+    """Parse EXTENSIONS="name=url,name2=url2" into a dict."""
+    result: dict[str, str] = {}
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise RuntimeError(f"bad EXTENSIONS entry (want name=url): {part!r}")
+        name, url = part.split("=", 1)
+        result[name.strip()] = url.strip()
+    return result
 
 
 def load_config() -> Config:
@@ -62,4 +78,5 @@ def load_config() -> Config:
     return Config(
         github_token=os.environ["GITHUB_TOKEN"],
         model=os.environ.get("MODEL", "claude-opus-4-8"),
+        extensions=_parse_extensions(os.environ.get("EXTENSIONS")),
     )
