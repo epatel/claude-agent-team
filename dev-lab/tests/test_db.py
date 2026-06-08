@@ -33,6 +33,29 @@ def test_projects_and_messages(tmp_path):
     assert [p["name"] for p in db.list_projects(conn)] == ["proj"]
 
 
+def test_migration_4_adds_base_branch_column(tmp_path):
+    conn = db.connect(tmp_path / "lab.db")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(projects)")}
+    assert "base_branch" in cols  # added by migration #4
+
+    pid = db.create_project(conn, name="p", path="/labs/p")
+    assert db.get_project(conn, pid)["base_branch"] is None  # unset by default
+
+
+def test_update_project_persists_base_branch(tmp_path):
+    conn = db.connect(tmp_path / "lab.db")
+    pid = db.create_project(conn, name="p", path="/labs/p")
+
+    db.update_project(conn, pid, base_branch="release")
+    assert db.get_project(conn, pid)["base_branch"] == "release"
+
+    # updating an unrelated field leaves base_branch in place
+    db.update_project(conn, pid, branch="chat/1")
+    row = db.get_project(conn, pid)
+    assert row["base_branch"] == "release"
+    assert row["branch"] == "chat/1"
+
+
 def test_record_and_read_run(tmp_path):
     conn = db.connect(tmp_path / "lab.db")
     row_id = db.record_run(

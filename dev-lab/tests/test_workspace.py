@@ -94,6 +94,32 @@ def test_create_branch_off_remote_only_base(tmp_path):
     assert (tmp_path / "clone" / "dev.txt").exists()
 
 
+def test_create_branch_parent_is_chosen_base(tmp_path):
+    """A new branch is rooted on the chosen base's tip, not the current HEAD.
+
+    Uses the origin-only ``develop`` base: its first commit added ``dev.txt`` on
+    top of the default branch, so a branch cut from it must have ``develop``'s
+    tip as the parent of its first commit.
+    """
+    origin = _init_bare_origin(tmp_path)
+    clone = tmp_path / "clone"
+    ws = _clone(origin, clone)
+    base_tip = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "origin/develop"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    ws.create_branch("chat/x", base="develop")
+    (clone / "work.txt").write_text("work\n")
+    ws.commit_all("work on chat branch")
+
+    parent = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "chat/x^"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert parent == base_tip  # the chat branch grew from the chosen base
+
+
 def test_create_branch_off_local_base(tmp_path):
     ws = _init_repo(tmp_path)
     base = ws.current_branch()
