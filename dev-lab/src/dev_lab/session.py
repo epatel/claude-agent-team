@@ -43,6 +43,7 @@ class LabSession:
         repo_path: str | Path,
         config: Config,
         branch: str | None = None,
+        base_branch: str | None = None,
         session_id: str | None = None,
         branch_started: bool = False,
         run_task: RunTask = _run_task,
@@ -50,6 +51,9 @@ class LabSession:
         self.workspace = Workspace(Path(repo_path))
         self.config = config
         self.branch = branch or f"chat/{int(time.time())}"
+        # Base the new ``chat/<ts>`` branch off this branch on the first turn
+        # (``None`` keeps the old behaviour of cutting from current HEAD).
+        self.base_branch = base_branch
         self._run_task = run_task
         # ``branch_started`` means the branch already exists (restored across a
         # restart) — check it out rather than create it on the first turn.
@@ -70,7 +74,7 @@ class LabSession:
                     f"workspace {self.workspace.path} has uncommitted changes; "
                     "commit or stash them before starting a chat session"
                 )
-            self.workspace.create_branch(self.branch)
+            self.workspace.create_branch(self.branch, base=self.base_branch)
             self._started = True
         else:
             self.workspace.checkout(self.branch)

@@ -52,6 +52,30 @@ def test_followup_reuses_branch_and_resumes(tmp_path):
     assert (tmp_path / "two.txt").exists()
 
 
+def test_first_turn_branches_off_configured_base(tmp_path):
+    _init_repo(tmp_path)
+    # A second branch carrying a file the default branch doesn't have.
+    subprocess.run(["git", "checkout", "-q", "-b", "release"], cwd=tmp_path, check=True)
+    (tmp_path / "only-on-release.txt").write_text("r\n")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "release-only"], cwd=tmp_path, check=True)
+    # Park HEAD somewhere that is NOT the configured base.
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=tmp_path, check=False)
+    subprocess.run(["git", "checkout", "-q", "master"], cwd=tmp_path, check=False)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "a.txt").write_text("one\n")
+        return AgentResult("did one", 1, False, 0.0, session_id="sess-1")
+
+    session = LabSession(
+        repo_path=tmp_path, config=Config(github_token="x"), base_branch="release", run_task=fake
+    )
+    asyncio.run(session.run_turn("add a.txt"))
+
+    # The chat branch was cut from ``release``, so the release-only file is present.
+    assert (tmp_path / "only-on-release.txt").exists()
+
+
 def test_no_changes_no_commit(tmp_path):
     _init_repo(tmp_path)
 
