@@ -66,6 +66,7 @@
           </label>
         </div>
         <div class="head-right">
+          <button id="browse-btn" class="merge-btn ghost" hidden>browse files</button>
           <button id="pull-btn" class="merge-btn ghost" hidden>pull</button>
           <button id="push-btn" class="merge-btn ghost" hidden>push</button>
           <button id="merge-btn" class="merge-btn ghost" hidden>merge → base</button>
@@ -111,9 +112,31 @@
     </div>
   </div>
 
+  <!-- COMMIT DIFF VIEWER -->
+  <dialog id="diff-dialog" class="modal">
+    <div class="modal-head">
+      <span id="diff-title" class="modal-title">diff</span>
+      <button type="button" class="modal-close ghost" data-close="diff-dialog">close</button>
+    </div>
+    <div id="diff-body" class="modal-body diff-body"></div>
+  </dialog>
+
+  <!-- REPO BROWSER -->
+  <dialog id="files-dialog" class="modal modal-wide">
+    <div class="modal-head">
+      <span id="files-title" class="modal-title">files</span>
+      <button type="button" class="modal-close ghost" data-close="files-dialog">close</button>
+    </div>
+    <div class="modal-body files-body">
+      <div id="file-tree" class="file-tree"></div>
+      <div id="file-content" class="file-content"></div>
+    </div>
+  </dialog>
+
   <script src="/vendor/marked.min.js"></script>
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/mermaid.min.js"></script>
+  <script src="/diff.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

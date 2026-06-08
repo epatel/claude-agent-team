@@ -141,6 +141,55 @@ def test_create_branch_default_keeps_current_head(tmp_path):
     assert ws.head_sha() == head  # branched off current HEAD
 
 
+def test_commit_diff_and_subject(tmp_path):
+    ws = _init_repo(tmp_path)
+    (tmp_path / "a.txt").write_text("line one\n")
+    sha = ws.commit_all("add a.txt")
+
+    assert ws.commit_subject(sha) == "add a.txt"
+    diff = ws.commit_diff(sha)
+    assert "a.txt" in diff and "+line one" in diff
+
+    # the seed (root) commit diffs cleanly too
+    root = subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-list", "--max-parents=0", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert "README.md" in ws.commit_diff(root)
+
+    with pytest.raises(WorkspaceError):
+        ws.commit_diff("not-a-sha")
+
+
+def test_list_tree_and_read_file(tmp_path):
+    ws = _init_repo(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("print('hi')\n")
+
+    top = {e["name"]: e for e in ws.list_tree()}
+    assert top["src"]["type"] == "dir" and top["README.md"]["type"] == "file"
+    assert ".git" not in top  # never exposed
+
+    sub = ws.list_tree("src")
+    assert sub[0]["name"] == "main.py" and sub[0]["path"] == "src/main.py"
+
+    f = ws.read_file("src/main.py")
+    assert f["binary"] is False and f["content"] == "print('hi')\n"
+
+    # binary content is flagged, not returned raw
+    (tmp_path / "blob.bin").write_bytes(b"\x00\x01\x02\xff")
+    blob = ws.read_file("blob.bin")
+    assert blob["binary"] is True and blob["content"] == ""
+
+
+def test_safe_path_blocks_traversal(tmp_path):
+    ws = _init_repo(tmp_path)
+    with pytest.raises(WorkspaceError):
+        ws.read_file("../escape.txt")
+    with pytest.raises(WorkspaceError):
+        ws.list_tree("../..")
+
+
 def test_head_branch_and_commit(tmp_path):
     ws = _init_repo(tmp_path)
     ws.ensure_repo()

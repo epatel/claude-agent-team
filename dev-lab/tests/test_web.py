@@ -229,6 +229,58 @@ def test_messages_endpoint(tmp_path):
     assert [m["role"] for m in msgs] == ["user", "assistant"]
 
 
+def test_commit_diff_endpoint(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    proj = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()
+    pid = proj["id"]
+
+    # add a commit in the clone so there's a diff to show
+    clone = tmp_path / "labs" / "myrepo"
+    (clone / "hello.txt").write_text("hello world\n")
+    subprocess.run(["git", "add", "-A"], cwd=clone, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "add hello"], cwd=clone, check=True)
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=clone, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    r = client.get(f"/api/projects/{pid}/commits/{sha}/diff")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["subject"] == "add hello"
+    assert "hello.txt" in body["diff"] and "+hello world" in body["diff"]
+
+    # a bogus sha is a clean 4xx, not a 500
+    assert client.get(f"/api/projects/{pid}/commits/zzz/diff").status_code == 400
+
+
+def test_tree_and_file_endpoints(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    proj = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()
+    pid = proj["id"]
+
+    tree = client.get(f"/api/projects/{pid}/tree").json()
+    names = [e["name"] for e in tree["entries"]]
+    assert "README.md" in names
+    assert ".git" not in names  # .git is hidden from the browser
+
+    content = client.get(f"/api/projects/{pid}/file?path=README.md").json()
+    assert content["binary"] is False and content["content"] == "seed\n"
+
+    # path traversal is refused
+    assert client.get(f"/api/projects/{pid}/file?path=../../etc/passwd").status_code == 400
+
+
+def test_diff_routes_require_auth(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.get("/api/projects/1/commits/abc1234/diff").status_code == 401
+    assert client.get("/api/projects/1/tree").status_code == 401
+    assert client.get("/api/projects/1/file?path=x").status_code == 401
+
+
 def test_ws_requires_auth(tmp_path):
     client, _ = _client(tmp_path)
     with pytest.raises(WebSocketDisconnect):

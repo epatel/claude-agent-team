@@ -160,6 +160,7 @@ async function openProject(id) {
   $("#active-name").textContent = p.name;
   $("#active-branch").textContent = p.branch || "";
   $("#chat-form").hidden = false;
+  $("#browse-btn").hidden = false;
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
   $("#merge-btn").hidden = false;
@@ -402,9 +403,12 @@ function handleEvent(e) {
       const div = state.assistantBody && state.assistantBody.closest(".msg");
       if (div) div.classList.remove("pending");
       if (e.commit_sha && state.activity) {
-        const c = document.createElement("span");
-        c.className = "commit-chip";
-        c.textContent = "✓ " + e.commit_sha.slice(0, 10);
+        const c = document.createElement("button");
+        c.type = "button";
+        c.className = "commit-chip commit-link";
+        c.title = "view file diffs for this commit";
+        c.textContent = "✓ " + e.commit_sha.slice(0, 10) + "  view diff";
+        c.addEventListener("click", () => openDiff(e.project_id, e.commit_sha));
         state.activity.appendChild(c);
       }
       if (e.branch) {
@@ -527,5 +531,164 @@ $("#user-rows").addEventListener("click", async (e) => {
     }
   } catch (err) { adminError(err.message); }
 });
+
+/* ---------- modals: commit diff + repo browser ---------- */
+// Close buttons (and Escape, handled natively by <dialog>) close their modal.
+document.querySelectorAll("[data-close]").forEach((btn) => {
+  btn.addEventListener("click", () => $("#" + btn.dataset.close).close());
+});
+
+async function openDiff(projectId, sha) {
+  const body = $("#diff-body");
+  $("#diff-title").textContent = sha.slice(0, 10);
+  body.innerHTML = '<div class="modal-loading">loading diff…</div>';
+  $("#diff-dialog").showModal();
+  try {
+    const r = await api(`/api/projects/${projectId}/commits/${sha}/diff`);
+    $("#diff-title").textContent = sha.slice(0, 10) + (r.subject ? "  ·  " + r.subject : "");
+    DiffViewer.render(r.diff, body);
+  } catch (err) {
+    body.innerHTML = "";
+    const p = document.createElement("p");
+    p.className = "diff-empty";
+    p.textContent = "failed to load diff: " + err.message;
+    body.appendChild(p);
+  }
+}
+
+/* repo browser — lazy one-level-at-a-time tree over the working clone */
+const fileBrowser = { activePath: null };
+
+$("#browse-btn").addEventListener("click", () => {
+  if (state.activeId != null) openFiles();
+});
+
+async function openFiles() {
+  fileBrowser.activePath = null;
+  const p = state.projects.find((x) => x.id === state.activeId);
+  $("#files-title").textContent = (p ? p.name : "files") + " — files";
+  $("#file-content").innerHTML = '<div class="file-empty">select a file to view it</div>';
+  const tree = $("#file-tree");
+  tree.innerHTML = '<div class="modal-loading">loading…</div>';
+  $("#files-dialog").showModal();
+  try {
+    const { entries } = await api(`/api/projects/${state.activeId}/tree`);
+    renderTree(tree, entries, 0);
+  } catch (err) {
+    tree.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "file-empty";
+    d.textContent = "failed: " + err.message;
+    tree.appendChild(d);
+  }
+}
+
+function renderTree(container, entries, depth) {
+  container.innerHTML = "";
+  for (const entry of entries) appendTreeNode(container, entry, depth);
+}
+
+function appendTreeNode(container, entry, depth) {
+  const row = document.createElement("div");
+  row.className = "tree-item tree-" + entry.type;
+  row.style.paddingLeft = 8 + depth * 14 + "px";
+  if (entry.path === fileBrowser.activePath) row.classList.add("active");
+  const icon = entry.type === "dir" ? "▸ " : "";
+  row.innerHTML = `<span class="tree-icon">${icon}</span><span class="tree-name"></span>`;
+  row.querySelector(".tree-name").textContent = entry.name;
+  container.appendChild(row);
+
+  if (entry.type === "dir") {
+    const kids = document.createElement("div");
+    kids.className = "tree-children";
+    kids.hidden = true;
+    container.appendChild(kids);
+    let loaded = false;
+    row.addEventListener("click", async () => {
+      const open = kids.hidden;
+      kids.hidden = !open;
+      row.querySelector(".tree-icon").textContent = open ? "▾ " : "▸ ";
+      if (open && !loaded) {
+        loaded = true;
+        kids.innerHTML = '<div class="modal-loading" style="padding-left:' + (8 + (depth + 1) * 14) + 'px">…</div>';
+        try {
+          const { entries } = await api(
+            `/api/projects/${state.activeId}/tree?path=${encodeURIComponent(entry.path)}`
+          );
+          renderTree(kids, entries, depth + 1);
+        } catch (err) {
+          loaded = false;
+          kids.innerHTML = "";
+          const d = document.createElement("div");
+          d.className = "file-empty";
+          d.textContent = "failed: " + err.message;
+          kids.appendChild(d);
+        }
+      }
+    });
+  } else {
+    row.addEventListener("click", () => openFile(entry.path, entry.name));
+  }
+}
+
+async function openFile(path, name) {
+  fileBrowser.activePath = path;
+  document.querySelectorAll("#file-tree .tree-item.active").forEach((el) => el.classList.remove("active"));
+  document.querySelectorAll("#file-tree .tree-file").forEach((el) => {
+    if (el.querySelector(".tree-name")?.textContent === name) el.classList.add("active");
+  });
+  const content = $("#file-content");
+  content.innerHTML = '<div class="modal-loading">loading…</div>';
+  try {
+    const data = await api(`/api/projects/${state.activeId}/file?path=${encodeURIComponent(path)}`);
+    renderFile(content, name, data);
+  } catch (err) {
+    content.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "file-empty";
+    d.textContent = "failed: " + err.message;
+    content.appendChild(d);
+  }
+}
+
+function renderFile(container, name, data) {
+  container.innerHTML = "";
+  const crumb = document.createElement("div");
+  crumb.className = "file-crumb";
+  crumb.textContent = data.path + "  ·  " + formatSize(data.size);
+  container.appendChild(crumb);
+
+  if (data.binary) {
+    const d = document.createElement("div");
+    d.className = "file-empty";
+    d.textContent = "binary file — " + formatSize(data.size);
+    container.appendChild(d);
+    return;
+  }
+  const view = document.createElement("div");
+  if (/\.md$/i.test(name)) {
+    view.className = "msg-body file-md";
+    renderMarkdown(view, data.content);
+  } else {
+    const pre = document.createElement("pre");
+    pre.className = "file-code";
+    pre.textContent = data.content;
+    view.appendChild(pre);
+  }
+  container.appendChild(view);
+  if (data.truncated) {
+    const t = document.createElement("div");
+    t.className = "file-truncated";
+    t.textContent = "… truncated (showing first 512 KB)";
+    container.appendChild(t);
+  }
+}
+
+function formatSize(bytes) {
+  if (bytes == null) return "";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
 
 checkAuth();

@@ -7,9 +7,12 @@ milestone.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
 
 
 class WorkspaceError(RuntimeError):
@@ -185,3 +188,83 @@ class Workspace:
         self._git("add", "-A")
         self._git("commit", "-m", message)
         return self.head_sha()
+
+    # --- inspection: commit diffs + a read-only repo browser ----------------
+
+    @staticmethod
+    def _require_sha(sha: str) -> None:
+        if not _SHA_RE.match(sha or ""):
+            raise WorkspaceError(f"invalid commit sha: {sha!r}")
+
+    def commit_subject(self, sha: str) -> str:
+        """The one-line subject of a commit."""
+        self._require_sha(sha)
+        return self._git("show", "-s", "--format=%s", sha)
+
+    def commit_diff(self, sha: str) -> str:
+        """Unified patch introduced by a single commit.
+
+        Uses ``git show`` so a root commit (no parent) still diffs cleanly
+        against the empty tree. ``--format=`` drops the commit header, leaving
+        just the patch the frontend renders.
+        """
+        self._require_sha(sha)
+        return self._git("show", "--no-color", "--format=", sha)
+
+    def _safe_path(self, rel: str) -> Path:
+        """Resolve a repo-relative path, refusing anything outside the clone."""
+        rel = (rel or "").strip().lstrip("/")
+        root = self.path.resolve()
+        target = (root / rel).resolve()
+        if target != root and root not in target.parents:
+            raise WorkspaceError(f"path escapes the repo: {rel!r}")
+        return target
+
+    def list_tree(self, rel: str = "") -> list[dict]:
+        """List one directory level of the working tree (``.git`` excluded).
+
+        Returns ``{name, path, type}`` entries (dirs first, then files), each
+        ``path`` repo-relative so the caller can drill down lazily.
+        """
+        root = self.path.resolve()
+        target = self._safe_path(rel)
+        if not target.is_dir():
+            raise WorkspaceError(f"not a directory: {rel!r}")
+        entries: list[dict] = []
+        for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+            if child.name == ".git":
+                continue
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": str(child.relative_to(root)),
+                    "type": "dir" if child.is_dir() else "file",
+                }
+            )
+        return entries
+
+    def read_file(self, rel: str, *, max_bytes: int = 512 * 1024) -> dict:
+        """Read a working-tree file for display.
+
+        Flags binary / oversized content instead of returning raw bytes, so the
+        browser never tries to render a megabyte of a non-text blob.
+        """
+        target = self._safe_path(rel)
+        if not target.is_file():
+            raise WorkspaceError(f"not a file: {rel!r}")
+        data = target.read_bytes()
+        size = len(data)
+        chunk = data[:max_bytes]
+        if b"\x00" in chunk:
+            return {"path": rel, "binary": True, "size": size, "truncated": False, "content": ""}
+        try:
+            text = chunk.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"path": rel, "binary": True, "size": size, "truncated": False, "content": ""}
+        return {
+            "path": rel,
+            "binary": False,
+            "size": size,
+            "truncated": size > max_bytes,
+            "content": text,
+        }
