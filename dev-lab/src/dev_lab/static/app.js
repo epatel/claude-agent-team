@@ -15,6 +15,40 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// Reusable in-app confirm dialog — styled like the other modals, replaces
+// window.confirm(). Returns a Promise<boolean>: true = confirmed, false =
+// cancelled (cancel button, close button, backdrop, or Escape).
+function confirmDialog({ title = "confirm", message = "", confirmText = "confirm", danger = true } = {}) {
+  return new Promise((resolve) => {
+    const dlg = $("#confirm-dialog");
+    const okBtn = $("#confirm-ok");
+    const cancelBtn = $("#confirm-cancel");
+    $("#confirm-title").textContent = title;
+    $("#confirm-message").textContent = message;
+    okBtn.textContent = confirmText;
+    okBtn.classList.toggle("danger", danger);
+
+    let settled = false;
+    const finish = (val) => {
+      if (settled) return;
+      settled = true;
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("close", onClose);
+      resolve(val);
+    };
+    const onOk = () => { finish(true); dlg.close(); };
+    const onCancel = () => dlg.close();   // triggers onClose → resolves false
+    const onClose = () => finish(false);  // covers Escape / backdrop / close btn
+
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("close", onClose);
+    dlg.showModal();
+    okBtn.focus();
+  });
+}
+
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
   if (!r.ok) {
@@ -326,9 +360,14 @@ $("#merge-btn").addEventListener("click", () => {
 
 // Clear chat: the web equivalent of /clear — wipes this project's conversation
 // and resets the agent's context (same branch). Destructive, so confirm first.
-$("#clear-chat-btn").addEventListener("click", () => {
+$("#clear-chat-btn").addEventListener("click", async () => {
   if (state.activeId == null) return;
-  if (!confirm("Clear this chat? This erases the conversation and starts a fresh agent context. Your code and branch are not affected.")) return;
+  const ok = await confirmDialog({
+    title: "clear chat",
+    message: "Clear this chat? This erases the conversation and starts a fresh agent context. Your code and branch are not affected.",
+    confirmText: "clear chat",
+  });
+  if (!ok) return;
   withButton($("#clear-chat-btn"), "clearing", async () => {
     try {
       await api(`/api/projects/${state.activeId}/clear`, { method: "POST" });
@@ -580,7 +619,11 @@ $("#user-rows").addEventListener("click", async (e) => {
       });
       await loadUsers();
     } else if (btn.dataset.act === "delete") {
-      if (!confirm("Delete this user permanently?")) return;
+      if (!(await confirmDialog({
+        title: "delete user",
+        message: "Delete this user permanently?",
+        confirmText: "delete",
+      }))) return;
       await api(`/api/admin/users/${id}`, { method: "DELETE" });
       await loadUsers();
     } else if (btn.dataset.act === "password") {

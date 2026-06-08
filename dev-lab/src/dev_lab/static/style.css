@@ -316,6 +316,19 @@ button.commit-link:hover { border-color: var(--accent); background: var(--panel-
 .modal-body { overflow: auto; padding: 16px 18px; }
 .modal-loading { color: var(--muted); font-family: var(--mono); font-size: 12px; padding: 8px 0; }
 
+/* confirm dialog: reusable replacement for window.confirm */
+.modal-confirm { width: min(440px, 92vw); }
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 18px; border-top: 1px solid var(--line);
+}
+.confirm-message {
+  font-size: 13px; line-height: 1.55; color: var(--text);
+  padding: 18px; white-space: pre-wrap;
+}
+button.danger { background: var(--bad); color: var(--ink); }
+button.danger:hover { filter: brightness(1.08); }
+
 .diff-body { background: var(--ink); }
 .diff-empty { color: var(--muted); font-family: var(--mono); font-size: 12px; }
 .diff-file { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
