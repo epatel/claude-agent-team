@@ -15,7 +15,7 @@ An always-on Claude Agent SDK "dev lab". Two surfaces:
   queue, extension MCP build/test. M0–M4 done and live-verified.
 
 **What's left:** TLS/reverse-proxy for the web console, real-Pi deployment, GitHub
-push (see gaps). ~62 tests pass, ruff clean.
+push (see gaps). 60 tests pass (dev-lab 50, chat-client 6, extension 4), ruff clean.
 
 Git: all work is merged into **`main`** (fast-forward; the `m0-skeleton` and
 `v2-web-console` branches are now redundant and can be deleted). Nothing is
@@ -23,21 +23,27 @@ pushed to a remote yet.
 
 ## Architecture (as built)
 
+Primary surface — the v2 web console:
+
 ```mermaid
 flowchart LR
-    CC[chat-client] -->|WebSocket| WS[control surface<br/>dev-lab serve]
-    WS -->|submit| Q[(file queue)]
-    SUP[supervisor] -->|claim| Q
-    SUP --> AG[Claude agent<br/>subscription auth]
+    B[Browser SPA<br/>login · projects · chat] -->|HTTP + WebSocket| WEB[FastAPI<br/>dev_lab.web]
+    WEB --> PM[ProjectManager]
+    PM --> P[(labs/&lt;repo&gt;<br/>per-project clone)]
+    WEB --> S[LabSession per project<br/>branch + resumed context]
+    S --> AG[Claude agent<br/>subscription auth]
     AG -->|MCP over HTTP+SSE| EXT[macos-build-test<br/>run_tests / build]
-    SUP -->|publish| BUS[EventBus] -->|stream| WS
-    SUP -->|run history| DB[(SQLite)]
-    AG -->|commit| CLONE[(local git clone)]
+    WEB --> DB[(labs/.dev-lab/lab.db<br/>users · projects · messages)]
+    WEB -->|merge → base| P
 ```
 
-One path, verified end to end: chat → WebSocket → file queue → supervisor →
-Claude agent → MCP tool call → extension runs it → result streams back → run
-logged in SQLite.
+Verified end to end: browser login → clone project → cookie-authed WebSocket chat
+→ per-project agent → streamed tool/markdown/mermaid → commit → merge → base →
+per-project persistence.
+
+The older **CLI path** still works and is independent: `chat-client` → `dev-lab
+serve` (WebSocket) → file queue → supervisor → agent → MCP → run history in
+SQLite. See `cards/dev-lab.md`.
 
 ## Repo layout
 
@@ -45,13 +51,13 @@ logged in SQLite.
 dev-lab/                  # the autonomous lab (runs on the Pi) — Python, its own venv
   src/dev_lab/
     config.py       # load_config(): GITHUB_TOKEN + EXTENSIONS; refuses to start if ANTHROPIC_API_KEY set
-    workspace.py    # git wrapper (branch/inspect/commit) — NOTE: no push yet (see gaps)
+    workspace.py    # git wrapper: branch/inspect/commit/checkout, merge(base,branch) — NOTE: no push yet (see gaps)
     agent.py        # Claude Agent SDK loop; build_agent_options() wires extension MCP servers
     lab.py          # run_once(): clean-tree -> branch -> agent edits -> one commit
     queue.py        # FileQueue: pending/running/done/failed, atomic claim, crash recovery
     supervisor.py   # serve(): drain queue, fail-and-continue, publish events, record runs
     session.py      # LabSession: interactive chat — one branch, resumed agent context per turn
-    projects.py     # v2: ProjectManager — labs/ discover/clone/open, per-project session + lock
+    projects.py     # v2: ProjectManager — discover/clone(name from URL,+_2)/open/merge_to_base, per-project session+lock
     auth.py         # v2: multi-user accounts (scrypt), session helpers
     web.py          # v2: FastAPI app — login, projects REST, /ws chat, static mount
     static/         # v2: vanilla web UI (index.html, app.js, style.css, vendor/{marked,purify,mermaid})
@@ -74,7 +80,7 @@ Versions: dev-lab 0.6.0, chat-client 0.2.0, macos-build-test 0.1.0.
 
 ```sh
 make setup           # create a venv per component, install editable + dev deps
-make test            # ~62 tests (dev-lab ~52, chat-client 6, extension 4)
+make test            # 60 tests (dev-lab 50, chat-client 6, extension 4)
 make lint            # ruff
 ```
 
@@ -108,10 +114,11 @@ not an env var.
   `chat/<ts>` branch with resumed memory — turn 2 recalled a number from turn 1's
   conversation that was never on disk), and the **v2 web console** (served
   frontend + register + clone a project + cookie-authed WebSocket chat → streamed
-  tool/markdown/mermaid → commit → per-project persistence).
-- **Not eyeballed:** the web UI's rendered pixels (no browser in the loop) — the
-  HTML/CSS/JS are served and the data path produces the markdown+mermaid the
-  frontend renders, but a human should give it a visual once-over.
+  tool/markdown/mermaid → commit → **merge → base** → per-project persistence).
+- **Eyeballed via headless Chromium (Playwright):** login, sidebar/project list, a
+  chat with rendered markdown + mermaid, and the clone busy-spinner — all look
+  right (and caught + fixed a mermaid label bug doing it). Not yet opened in a
+  real human browser.
 - **Tested but not on real hardware:** M2 runs uninterrupted locally; **never
   run on an actual Raspberry Pi**.
 - Live runs need: `claude` logged in, network, and spend subscription credits
@@ -177,6 +184,10 @@ not an env var.
    (access stays serialized through the single event loop).
 9. **Web: agent output is untrusted** — it's rendered as markdown, so always keep
    `DOMPurify.sanitize` + mermaid `securityLevel:"strict"` in `static/app.js`.
+   (Mermaid's own SVG is injected raw — strict mode sanitizes it; a DOMPurify pass
+   over it mangles the diagram.)
+10. **New UI buttons** that fire an async/slow action must use `withButton(...)` in
+    `static/app.js` (double-tap guard + spinner). See `cards/no-double-submit.md`.
 
 ## Pointers
 
@@ -186,4 +197,5 @@ not an env var.
 - `cards/` — `architecture`, `web-console`, `dev-lab`, `chat-client`,
   `extension-clients`, `repo-sync`, `deployment`, and decision cards
   (`subscription-auth`, `control-transports`, `sqlite-runtime-data`,
-  `mcp-for-extensions`, `claude-agent-sdk-self-hosted`, `python-venvs`).
+  `no-double-submit`, `mcp-for-extensions`, `claude-agent-sdk-self-hosted`,
+  `python-venvs`).
