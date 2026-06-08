@@ -121,6 +121,15 @@ class Workspace:
             self.checkout(current)
         return sha
 
+    def push(self, branch: str) -> str:
+        """Push ``branch`` to origin; return its HEAD sha.
+
+        Does not touch the working tree. Raises ``WorkspaceError`` if the push is
+        rejected (non-fast-forward remote, missing remote, auth failure, …).
+        """
+        self._git("push", "origin", branch)
+        return self._git("rev-parse", branch)
+
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 

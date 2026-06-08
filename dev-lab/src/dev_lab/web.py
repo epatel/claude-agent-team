@@ -147,6 +147,16 @@ def build_app(
         await bus.publish({"type": "projects_changed"})
         return result
 
+    @app.post("/api/projects/{project_id}/push")
+    async def push_project(project_id: int, request: Request) -> dict:
+        current_user(request)
+        try:
+            result = await pm.push_base(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
     @app.get("/api/projects/{project_id}/messages")
     async def messages(project_id: int, request: Request) -> list[dict]:
         current_user(request)

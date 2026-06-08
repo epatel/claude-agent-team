@@ -135,6 +135,7 @@ async function openProject(id) {
   $("#active-branch").textContent = p.branch || "";
   $("#chat-form").hidden = false;
   $("#pull-btn").hidden = false;
+  $("#push-btn").hidden = false;
   $("#merge-btn").hidden = false;
   const t = $("#transcript");
   t.innerHTML = "";
@@ -166,6 +167,18 @@ $("#pull-btn").addEventListener("click", () => {
       systemLine(`✓ pulled ${r.base} @ ${r.commit.slice(0, 10)}`);
     } catch (err) {
       systemLine(`✗ pull failed: ${err.message}`, true);
+    }
+  });
+});
+
+$("#push-btn").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  withButton($("#push-btn"), "pushing", async () => {
+    try {
+      const r = await api(`/api/projects/${state.activeId}/push`, { method: "POST" });
+      systemLine(`✓ pushed ${r.base} @ ${r.commit.slice(0, 10)}`);
+    } catch (err) {
+      systemLine(`✗ push failed: ${err.message}`, true);
     }
   });
 });

@@ -159,6 +159,16 @@ class ProjectManager:
             commit = ws.pull(base)
         return {"base": base, "commit": commit}
 
+    async def push_base(self, project_id: int) -> dict:
+        """Push the project's base branch to origin."""
+        session = self.open(project_id)
+        ws = session.workspace
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            base = ws.default_branch()
+            commit = ws.push(base)
+        return {"base": base, "commit": commit}
+
     async def run_turn(self, project_id: int, message: str, *, on_event=None) -> TurnResult:
         """Run one chat turn for a project: persist message, run, persist state."""
         session = self.open(project_id)
