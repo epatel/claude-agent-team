@@ -59,7 +59,13 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   (`diff.js` renders the unified patch as collapsible per-file blocks). A
   **browse files** header button opens a read-only repo browser backed by
   `GET …/tree?path=` (lazy, one dir level) and `GET …/file?path=` (text/markdown,
-  binary + 512 KB guards; `.git` hidden, path-traversal refused). It shows the
+  binary + 512 KB guards; `.git` hidden, path-traversal refused). Image files
+  (png/jpg/gif/webp/svg/…) render inline as `<img>` instead of the "binary file"
+  placeholder, and markdown files get their relative image references
+  (`![](img/x.png)`, repo-root `/x.png`, `../x.png`) rewritten to resolve against
+  the file's directory. Raw bytes are streamed by `GET …/raw?path=` (same
+  path-traversal + `.git` guards, media type from the filename) — used both for
+  inline image files and for markdown's resolved image src. It shows the
   **working tree** (what's actually checked out), and `…/tree` annotates each
   entry with its **status vs the base branch** (`new`/`modified`, dirs flagged if
   they contain changes) plus the current `branch`, the `base`, and `missing` —

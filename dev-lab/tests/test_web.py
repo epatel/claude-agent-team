@@ -309,11 +309,32 @@ def test_tree_and_file_endpoints(tmp_path):
     assert client.get(f"/api/projects/{pid}/file?path=../../etc/passwd").status_code == 400
 
 
+def test_raw_endpoint_serves_bytes(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    proj = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()
+    pid = proj["id"]
+
+    # drop a tiny PNG into the checkout and fetch its raw bytes
+    png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    (tmp_path / "labs" / proj["name"] / "logo.png").write_bytes(png)
+    r = client.get(f"/api/projects/{pid}/raw?path=logo.png")
+    assert r.status_code == 200
+    assert r.content == png
+    assert r.headers["content-type"].startswith("image/png")
+
+    # traversal and .git are refused
+    assert client.get(f"/api/projects/{pid}/raw?path=../../etc/passwd").status_code == 400
+    assert client.get(f"/api/projects/{pid}/raw?path=.git/config").status_code == 400
+
+
 def test_diff_routes_require_auth(tmp_path):
     client, _ = _client(tmp_path)
     assert client.get("/api/projects/1/commits/abc1234/diff").status_code == 401
     assert client.get("/api/projects/1/tree").status_code == 401
     assert client.get("/api/projects/1/file?path=x").status_code == 401
+    assert client.get("/api/projects/1/raw?path=x").status_code == 401
 
 
 def test_ws_requires_auth(tmp_path):

@@ -279,6 +279,21 @@ class Workspace:
             )
         return entries
 
+    def file_path(self, rel: str) -> Path:
+        """Resolve a repo-relative path to an existing file for raw serving.
+
+        Same guards as :meth:`read_file` (path-traversal refused, ``.git``
+        hidden) but returns the absolute path so the caller can stream the bytes
+        — used to serve images and other binaries the browser renders directly.
+        """
+        target = self._safe_path(rel)
+        parts = target.relative_to(self.path.resolve()).parts
+        if ".git" in parts:
+            raise WorkspaceError(f"refused: {rel!r}")
+        if not target.is_file():
+            raise WorkspaceError(f"not a file: {rel!r}")
+        return target
+
     def read_file(self, rel: str, *, max_bytes: int = 512 * 1024) -> dict:
         """Read a working-tree file for display.
 

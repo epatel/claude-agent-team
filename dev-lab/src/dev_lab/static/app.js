@@ -417,8 +417,20 @@ function addMessage(role, content) {
   return body;
 }
 
-async function renderMarkdown(el, text) {
+async function renderMarkdown(el, text, baseDir) {
   el.innerHTML = DOMPurify.sanitize(marked.parse(text || ""));
+  // When rendering a markdown *file*, resolve its relative image references
+  // (e.g. ![](img/diagram.png)) against the file's directory and point them at
+  // the project's raw-file endpoint — the browser can't fetch repo-relative
+  // paths on its own. baseDir is undefined for chat markdown, leaving src as-is.
+  if (baseDir !== undefined) {
+    for (const img of el.querySelectorAll("img")) {
+      const rel = resolveRepoPath(baseDir, img.getAttribute("src") || "");
+      if (rel != null) {
+        img.src = `/api/projects/${state.activeId}/raw?path=${encodeURIComponent(rel)}`;
+      }
+    }
+  }
   const blocks = el.querySelectorAll("code.language-mermaid");
   let i = 0;
   for (const code of blocks) {
@@ -790,12 +802,55 @@ async function openFile(path, name) {
   }
 }
 
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i;
+
+// Resolve a relative/repo-absolute reference (from a markdown file at baseDir)
+// to a clean repo-relative path. Returns null for external/absolute URLs and
+// data URIs, which should be left untouched.
+function resolveRepoPath(baseDir, ref) {
+  ref = (ref || "").replace(/[?#].*$/, "");
+  if (!ref || /^(https?:|data:|blob:|\/\/|mailto:)/i.test(ref)) return null;
+  try { ref = decodeURIComponent(ref); } catch { /* keep raw ref */ }
+  const parts = ref.startsWith("/")
+    ? ref.split("/")
+    : (baseDir ? baseDir.split("/") : []).concat(ref.split("/"));
+  const stack = [];
+  for (const seg of parts) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") stack.pop();
+    else stack.push(seg);
+  }
+  return stack.length ? stack.join("/") : null;
+}
+
+function dirOf(path) {
+  const i = path.lastIndexOf("/");
+  return i === -1 ? "" : path.slice(0, i);
+}
+
 function renderFile(container, name, data) {
   container.innerHTML = "";
   const crumb = document.createElement("div");
   crumb.className = "file-crumb";
   crumb.textContent = data.path + "  ·  " + formatSize(data.size);
   container.appendChild(crumb);
+
+  if (IMAGE_RE.test(name)) {
+    const img = document.createElement("img");
+    img.className = "file-img";
+    img.alt = name;
+    img.src = `/api/projects/${state.activeId}/raw?path=${encodeURIComponent(data.path)}`;
+    img.addEventListener("error", () => {
+      img.replaceWith(
+        Object.assign(document.createElement("div"), {
+          className: "file-empty",
+          textContent: "could not load image — " + formatSize(data.size),
+        }),
+      );
+    });
+    container.appendChild(img);
+    return;
+  }
 
   if (data.binary) {
     const d = document.createElement("div");
@@ -807,7 +862,7 @@ function renderFile(container, name, data) {
   const view = document.createElement("div");
   if (/\.md$/i.test(name)) {
     view.className = "msg-body file-md";
-    renderMarkdown(view, data.content);
+    renderMarkdown(view, data.content, dirOf(data.path));
   } else {
     const pre = document.createElement("pre");
     pre.className = "file-code";

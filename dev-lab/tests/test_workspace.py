@@ -218,6 +218,23 @@ def test_diff_status_against_base(tmp_path):
     assert status["scratch.tmp"] == "new"  # untracked
 
 
+def test_file_path_resolves_and_guards(tmp_path):
+    ws = _init_repo(tmp_path)
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "logo.png").write_bytes(b"\x89PNG\r\n")
+
+    resolved = ws.file_path("assets/logo.png")
+    assert resolved == (tmp_path / "assets" / "logo.png").resolve()
+
+    # directories, traversal, and .git are all refused
+    with pytest.raises(WorkspaceError):
+        ws.file_path("assets")
+    with pytest.raises(WorkspaceError):
+        ws.file_path("../escape.png")
+    with pytest.raises(WorkspaceError):
+        ws.file_path(".git/config")
+
+
 def test_safe_path_blocks_traversal(tmp_path):
     ws = _init_repo(tmp_path)
     with pytest.raises(WorkspaceError):

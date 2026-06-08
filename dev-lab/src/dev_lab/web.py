@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
@@ -340,6 +341,15 @@ def build_app(
             return await pm.read_file(project_id, path)
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/projects/{project_id}/raw")
+    async def project_raw(project_id: int, request: Request, path: str) -> FileResponse:
+        current_user(request)
+        try:
+            target = await pm.raw_file(project_id, path)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return FileResponse(target)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
