@@ -102,8 +102,10 @@ $("#logout-btn").addEventListener("click", async () => {
 async function showApp() {
   $("#login").hidden = true;
   $("#app").hidden = false;
-  $("#who").textContent = state.user + (state.isSuper ? " ★" : "");
-  $("#admin-btn").hidden = !state.isSuper;
+  const who = $("#who");
+  who.textContent = (state.isSuper ? "⚙ " : "") + state.user + (state.isSuper ? " ★" : "");
+  who.classList.toggle("is-super", state.isSuper);
+  who.title = state.isSuper ? "manage users" : "";
   await loadProjects();
   connectWs();
 }
@@ -164,6 +166,8 @@ async function openProject(id) {
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
   $("#merge-btn").hidden = false;
+  $("#head-tabs").hidden = false;
+  setTab("chat");
   const t = $("#transcript");
   t.innerHTML = "";
   setStatus("idle");
@@ -172,6 +176,21 @@ async function openProject(id) {
   for (const m of msgs) addMessage(m.role, m.content);
   $("#chat-text").focus();
 }
+
+/* ---------- header tabs (chat | repo) ---------- */
+function setTab(name) {
+  document.querySelectorAll("#head-tabs .tab").forEach((t) => {
+    const on = t.dataset.tab === name;
+    t.classList.toggle("is-active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("#panel-chat").hidden = name !== "chat";
+  $("#panel-repo").hidden = name !== "repo";
+  if (name === "chat") scrollBottom();
+}
+document.querySelectorAll("#head-tabs .tab").forEach((t) => {
+  t.addEventListener("click", () => setTab(t.dataset.tab));
+});
 
 /* ---------- base branch (for new chat threads) ---------- */
 const baseSelect = $("#base-select");
@@ -491,7 +510,7 @@ async function loadUsers() {
   } catch (err) { adminError(err.message); }
 }
 
-$("#admin-btn").addEventListener("click", openAdmin);
+$("#who").addEventListener("click", () => { if (state.isSuper) openAdmin(); });
 $("#admin-close").addEventListener("click", closeAdmin);
 adminOverlay.addEventListener("click", (e) => { if (e.target === adminOverlay) closeAdmin(); });
 
