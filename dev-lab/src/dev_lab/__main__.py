@@ -1,6 +1,7 @@
 """Entry point for the dev lab.
 
 Commands:
+  web     — multi-project web console (login, project list, per-project chat).
   run     — run one instruction now against a local clone (one-shot, M1).
   serve   — long-running supervisor that drains the job queue forever (M2).
   submit  — enqueue an instruction for a running supervisor (M2).
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 from pathlib import Path
 
@@ -31,6 +33,8 @@ DEFAULT_QUEUE = str(_STATE_DIR / "queue")
 DEFAULT_DB = str(_STATE_DIR / "lab.db")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+DEFAULT_LABS = str(Path.home() / "labs")
+DEFAULT_WEB_PORT = 8770
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -55,7 +59,27 @@ def _build_parser() -> argparse.ArgumentParser:
     submit_p.add_argument("--queue", default=DEFAULT_QUEUE, help="queue directory")
     submit_p.add_argument("--repo", help="optional per-job repo override")
 
+    web_p = sub.add_parser("web", help="run the multi-project web console")
+    web_p.add_argument("--labs-dir", default=DEFAULT_LABS, help="directory of project checkouts")
+    web_p.add_argument("--host", default=DEFAULT_HOST, help="web server host")
+    web_p.add_argument("--port", type=int, default=DEFAULT_WEB_PORT, help="web server port")
+
     return parser
+
+
+def _ensure_secret(state_dir: Path) -> str:
+    """Return a persistent cookie-signing secret (from env or a 0600 file)."""
+    env = os.environ.get("LAB_SECRET")
+    if env:
+        return env
+    state_dir.mkdir(parents=True, exist_ok=True)
+    secret_file = state_dir / "secret"
+    if secret_file.exists():
+        return secret_file.read_text().strip()
+    secret = os.urandom(32).hex()
+    secret_file.write_text(secret)
+    secret_file.chmod(0o600)
+    return secret
 
 
 def _print_run_result(result) -> None:
@@ -137,6 +161,29 @@ def _cmd_submit(args) -> int:
     return 0
 
 
+def _cmd_web(args) -> int:
+    import uvicorn
+
+    from .web import build_app
+
+    labs = Path(args.labs_dir)
+    state = labs / ".dev-lab"
+    config = load_config()
+    conn = db_connect(str(state / "lab.db"))
+    app = build_app(
+        labs_dir=labs,
+        config=config,
+        conn=conn,
+        secret=_ensure_secret(state),
+        static_dir=Path(__file__).parent / "static",
+    )
+    logging.getLogger("dev_lab").info(
+        "web console on http://%s:%d (labs=%s)", args.host, args.port, labs
+    )
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "run":
@@ -145,7 +192,9 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serve(args)
     if args.command == "submit":
         return _cmd_submit(args)
-    print(f"dev-lab {__version__}. Commands: run | serve | submit (see --help).")
+    if args.command == "web":
+        return _cmd_web(args)
+    print(f"dev-lab {__version__}. Commands: web | run | serve | submit (see --help).")
     return 0
 
 

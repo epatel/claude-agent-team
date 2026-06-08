@@ -58,6 +58,18 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX idx_messages_project ON messages(project_id, id);
         """,
     ),
+    (
+        3,
+        """
+        CREATE TABLE users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT NOT NULL UNIQUE,
+            pw_hash     TEXT NOT NULL,
+            pw_salt     TEXT NOT NULL,
+            created_at  REAL NOT NULL
+        );
+        """,
+    ),
 ]
 
 
@@ -78,7 +90,9 @@ def connect(path: str | Path) -> sqlite3.Connection:
     """Open (creating parent dirs) and migrate a SQLite database."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(p)
+    # check_same_thread=False: the web app's loop may run on a different thread
+    # than where connect() was called; access stays serialized (single loop).
+    conn = sqlite3.connect(p, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     migrate(conn)

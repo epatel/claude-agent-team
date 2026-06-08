@@ -4,17 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dev-lab"
-version = "0.5.0"
+version = "0.6.0"
 description = "Always-on Claude Agent SDK dev lab (runs on the Raspberry Pi 5)."
 requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.0",
     "claude-agent-sdk>=0.2.93,<0.3",
     "websockets>=13,<16",
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.30",
+    "itsdangerous>=2.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
 
 [project.scripts]
 dev-lab = "dev_lab.__main__:main"
