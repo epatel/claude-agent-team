@@ -139,7 +139,9 @@ async function showApp() {
   const who = $("#who");
   who.textContent = (state.isSuper ? "⚙ " : "") + state.user + (state.isSuper ? " ★" : "");
   who.classList.toggle("is-super", state.isSuper);
-  who.title = state.isSuper ? "manage users" : "";
+  who.title = state.isSuper
+    ? "You're a super-user (★). Click to open the admin panel and manage users & invites."
+    : "Signed in as " + state.user;
   await loadProjects();
   connectWs();
 }
@@ -631,12 +633,12 @@ async function loadUsers() {
       const tr = document.createElement("tr");
       if (u.blocked) tr.className = "blocked-row";
       const actions = [
-        `<button class="mini" data-act="password" data-id="${u.id}">reset pw</button>`,
-        self ? "" : `<button class="mini" data-act="block" data-id="${u.id}" data-blocked="${u.blocked}">${u.blocked ? "unblock" : "block"}</button>`,
-        self ? "" : `<button class="mini danger" data-act="delete" data-id="${u.id}">delete</button>`,
+        `<button class="mini" data-act="password" data-id="${u.id}" title="Set a new password for this user">reset pw</button>`,
+        self ? "" : `<button class="mini" data-act="block" data-id="${u.id}" data-blocked="${u.blocked}" title="${u.blocked ? "Restore this user's access" : "Block this user from logging in"}">${u.blocked ? "unblock" : "block"}</button>`,
+        self ? "" : `<button class="mini danger" data-act="delete" data-id="${u.id}" title="Permanently delete this user account">delete</button>`,
       ].join("");
       tr.innerHTML =
-        `<td>${escapeHtml(u.username)}${self ? " <span class='you'>(you)</span>" : ""}</td>` +
+        `<td>${escapeHtml(u.username)}${self ? " <span class='you' title='This is your own account'>you</span>" : ""}</td>` +
         `<td>${u.is_super ? "super ★" : "user"}</td>` +
         `<td>${u.blocked ? "blocked" : "active"}</td>` +
         `<td class="actions-col">${actions}</td>`;

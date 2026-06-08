@@ -18,15 +18,18 @@
       <div class="brand">◢◤ THE&nbsp;LAB</div>
       <p class="tagline">autonomous agent control room</p>
       <form id="auth-form" autocomplete="on">
-        <input id="username" name="username" autocomplete="username" placeholder="username" required />
+        <input id="username" name="username" autocomplete="username" placeholder="username"
+          title="Your account name" required />
         <input id="password" name="password" type="password" autocomplete="current-password"
-          placeholder="password" required />
+          placeholder="password" title="Your account password" required />
         <input id="invite" name="invite" autocomplete="off"
-          placeholder="invite code" hidden />
+          placeholder="invite code"
+          title="The single-use code a super-user gave you. The very first account on a fresh lab needs no code." hidden />
         <div id="auth-error" class="error"></div>
         <div class="auth-actions">
-          <button type="submit">log in</button>
-          <button type="button" id="register-btn" class="ghost">register</button>
+          <button type="submit" title="Sign in with the username and password above">log in</button>
+          <button type="button" id="register-btn" class="ghost"
+            title="Create a new account. After the first user, registration needs an invite code.">register</button>
         </div>
       </form>
     </div>
@@ -37,21 +40,28 @@
     <aside class="sidebar">
       <div class="sidebar-head">
         <span class="brand-sm">◢◤ LAB</span>
-        <button id="who" class="who" type="button"></button>
+        <button id="who" class="who" type="button"
+          title="You're signed in. Super-users see ★ and a ⚙ admin panel."></button>
       </div>
-      <button id="new-project-btn" class="new-project">+ new project</button>
+      <button id="new-project-btn" class="new-project"
+        title="Clone a git repo into the lab as a new project">+ new project</button>
       <form id="new-project-form" class="new-project-form" hidden>
-        <input id="np-url" placeholder="git url (https://…)" required />
+        <input id="np-url" placeholder="git url" required
+          title="HTTPS git URL of the repo to clone, e.g. https://github.com/owner/repo" />
         <input id="np-token" type="password" autocomplete="off"
-          placeholder="github token (private repos &amp; pushing)" />
+          placeholder="github token"
+          title="Needed for private repos and for pushing. Public, read-only clones don't need one." />
         <div class="np-actions">
-          <button type="submit" id="np-submit">clone</button>
-          <button type="button" id="np-cancel" class="ghost">cancel</button>
+          <button type="submit" id="np-submit"
+            title="Clone the repo at the URL above into a new project">clone</button>
+          <button type="button" id="np-cancel" class="ghost"
+            title="Discard this form without cloning">cancel</button>
         </div>
         <div id="np-error" class="error"></div>
       </form>
       <ul id="project-list" class="project-list"></ul>
-      <button id="logout-btn" class="logout ghost">log out</button>
+      <button id="logout-btn" class="logout ghost"
+        title="End your session and return to the login screen">log out</button>
     </aside>
 
     <main class="chat">
@@ -62,9 +72,11 @@
         </div>
         <nav id="head-tabs" class="head-tabs" role="tablist" aria-label="project view" hidden>
           <button id="tab-chat" class="tab is-active" type="button" role="tab"
-            data-tab="chat" aria-controls="panel-chat" aria-selected="true">chat</button>
+            data-tab="chat" aria-controls="panel-chat" aria-selected="true"
+            title="Talk to this project's agent">chat</button>
           <button id="tab-repo" class="tab" type="button" role="tab"
-            data-tab="repo" aria-controls="panel-repo" aria-selected="false">repo</button>
+            data-tab="repo" aria-controls="panel-repo" aria-selected="false"
+            title="Repo actions: browse files, fetch/pull/push, merge, and set the base branch">repo</button>
         </nav>
         <div class="head-right">
           <button id="clear-chat-btn" class="clear-chat-btn ghost" type="button" hidden
@@ -78,8 +90,9 @@
           <div class="empty" id="empty-state">select or clone a project to start talking</div>
         </div>
         <form id="chat-form" class="chat-input" hidden>
-          <textarea id="chat-text" rows="1" placeholder="message the agent —  ⏎ to send, ⇧⏎ for newline"></textarea>
-          <button type="submit" aria-label="send">↦</button>
+          <textarea id="chat-text" rows="1" placeholder="message the agent"
+            title="⏎ to send, ⇧⏎ for a newline"></textarea>
+          <button type="submit" aria-label="send" title="Send this message to the agent">↦</button>
         </form>
       </section>
 
@@ -92,21 +105,30 @@
               aria-label="base branch for new chat threads"></select>
           </label>
           <div class="repo-actions">
-            <button id="browse-btn" class="merge-btn ghost" hidden>browse files</button>
-            <button id="fetch-btn" class="merge-btn ghost" hidden>fetch</button>
-            <button id="pull-btn" class="merge-btn ghost" hidden>pull</button>
-            <button id="push-btn" class="merge-btn ghost" hidden>push</button>
+            <button id="browse-btn" class="merge-btn ghost" hidden
+              title="Open a read-only browser of the project's working tree">browse files</button>
+            <button id="fetch-btn" class="merge-btn ghost" hidden
+              title="Fetch the latest commits from the remote without changing your files">fetch</button>
+            <button id="pull-btn" class="merge-btn ghost" hidden
+              title="Fetch and merge the remote base branch into this checkout">pull</button>
+            <button id="push-btn" class="merge-btn ghost" hidden
+              title="Push this branch's commits to the remote (needs a GitHub token)">push</button>
             <div class="repo-actions-break" aria-hidden="true"></div>
-            <button id="merge-base-btn" class="merge-btn ghost" hidden>merge base → branch</button>
-            <button id="merge-btn" class="merge-btn ghost" hidden>merge branch → base</button>
+            <button id="merge-base-btn" class="merge-btn ghost" hidden
+              title="Merge the base branch INTO this chat branch — pull base's latest work on top of your session. Aborts on conflict.">merge base → branch</button>
+            <button id="merge-btn" class="merge-btn ghost" hidden
+              title="Merge this chat branch INTO the base branch — land your session's work. Aborts on conflict.">merge branch → base</button>
           </div>
           <form id="token-form" class="token-form" hidden
             title="This project's GitHub token, used to clone, pull and push. Stored per project.">
             <span id="token-status" class="token-status"></span>
             <input id="token-input" type="password" autocomplete="off"
-              placeholder="github token" aria-label="github token" />
-            <button id="token-save" type="submit" class="merge-btn ghost">save</button>
-            <button id="token-clear" type="button" class="merge-btn ghost">clear</button>
+              placeholder="github token" aria-label="github token"
+              title="A GitHub personal access token for this project's private clone/pull/push" />
+            <button id="token-save" type="submit" class="merge-btn ghost"
+              title="Store this token on the project for clone, pull and push">save</button>
+            <button id="token-clear" type="button" class="merge-btn ghost"
+              title="Remove the stored token from this project">clear</button>
             <span id="token-error" class="error"></span>
           </form>
         </div>
@@ -119,13 +141,15 @@
     <div class="admin-panel">
       <header class="admin-head">
         <span class="admin-title">⚙ user administration</span>
-        <button id="admin-close" class="ghost" aria-label="close">✕</button>
+        <button id="admin-close" class="ghost" aria-label="close"
+          title="Close the admin panel">✕</button>
       </header>
 
       <section class="admin-section">
         <div class="admin-section-head">
           <h3>invite codes</h3>
-          <button id="new-invite-btn">+ new invite</button>
+          <button id="new-invite-btn"
+            title="Mint a single-use code so a new user can register">+ new invite</button>
         </div>
         <ul id="invite-list" class="invite-list"></ul>
       </section>
