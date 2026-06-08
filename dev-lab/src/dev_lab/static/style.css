@@ -120,9 +120,16 @@ input:focus, textarea:focus {
   gap: 12px;
   min-height: 0;
 }
-.sidebar-head { display: flex; align-items: baseline; justify-content: space-between; }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .brand-sm { font-family: var(--mono); font-weight: 600; letter-spacing: .1em; color: var(--accent); }
-.who { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.who {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  background: none; border: 0; padding: 0; margin: 0;
+  text-transform: none; letter-spacing: .02em; cursor: default;
+}
+.who.is-super { cursor: pointer; color: var(--text); }
+.who.is-super:hover { color: var(--accent); filter: none; }
+.who:active { transform: none; }
 .new-project { width: 100%; }
 .new-project-form { display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); padding: 12px; border-radius: 8px; border: 1px solid var(--line); }
 .np-actions { display: flex; gap: 8px; }
@@ -170,7 +177,29 @@ input:focus, textarea:focus {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 24px; border-bottom: 1px solid var(--line);
 }
-.head-left { display: flex; align-items: center; gap: 12px; }
+.head-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+/* tabs: chat | repo (connection later) */
+.head-tabs { display: flex; gap: 4px; }
+.tab {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 14px;
+}
+.tab:hover { color: var(--text); filter: none; border-color: var(--accent-dim); }
+.tab.is-active { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+.tab.is-active:hover { color: var(--ink); }
+
+.tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.repo-panel { padding: 24px; overflow-y: auto; }
+.repo-card {
+  max-width: 520px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.repo-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .base-picker[hidden] { display: none; }
 .base-picker {
   display: flex; align-items: center; gap: 6px;
@@ -200,7 +229,6 @@ input:focus, textarea:focus {
   border-right-color: transparent;
   animation: spin .65s linear infinite;
 }
-.head-right { display: flex; align-items: center; gap: 14px; }
 .merge-btn { font-size: 11px; padding: 6px 12px; }
 .sys { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; padding: 4px 0; }
 .sys.bad { color: var(--bad); }
@@ -354,8 +382,6 @@ button.commit-link:hover { border-color: var(--accent); background: var(--panel-
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(245,166,35,.5); } 70% { box-shadow: 0 0 0 6px rgba(245,166,35,0); } 100% { box-shadow: 0 0 0 0 rgba(245,166,35,0); } }
 
 /* ---------- admin ---------- */
-.admin-btn { margin-left: auto; font-size: 11px; padding: 3px 8px; }
-
 .overlay {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(6, 7, 10, .72);

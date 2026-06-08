@@ -37,8 +37,7 @@
     <aside class="sidebar">
       <div class="sidebar-head">
         <span class="brand-sm">◢◤ LAB</span>
-        <span id="who" class="who"></span>
-        <button id="admin-btn" class="admin-btn ghost" hidden title="manage users">⚙ admin</button>
+        <button id="who" class="who" type="button"></button>
       </div>
       <button id="new-project-btn" class="new-project">+ new project</button>
       <form id="new-project-form" class="new-project-form" hidden>
@@ -58,28 +57,42 @@
         <div class="head-left">
           <span id="active-name" class="active-name">—</span>
           <span id="active-branch" class="branch-chip"></span>
+        </div>
+        <nav id="head-tabs" class="head-tabs" role="tablist" aria-label="project view" hidden>
+          <button id="tab-chat" class="tab is-active" type="button" role="tab"
+            data-tab="chat" aria-controls="panel-chat" aria-selected="true">chat</button>
+          <button id="tab-repo" class="tab" type="button" role="tab"
+            data-tab="repo" aria-controls="panel-repo" aria-selected="false">repo</button>
+        </nav>
+        <span id="active-status" class="status"></span>
+      </header>
+
+      <section id="panel-chat" class="tab-panel chat-panel" role="tabpanel" aria-labelledby="tab-chat">
+        <div id="transcript" class="transcript">
+          <div class="empty" id="empty-state">select or clone a project to start talking</div>
+        </div>
+        <form id="chat-form" class="chat-input" hidden>
+          <textarea id="chat-text" rows="1" placeholder="message the agent —  ⏎ to send, ⇧⏎ for newline"></textarea>
+          <button type="submit" aria-label="send">↦</button>
+        </form>
+      </section>
+
+      <section id="panel-repo" class="tab-panel repo-panel" role="tabpanel" aria-labelledby="tab-repo" hidden>
+        <div class="repo-card">
           <label id="base-picker" class="base-picker" hidden
             title="Base branch for NEW chat threads. The current chat keeps its own branch.">
             <span class="base-label">new-chat base</span>
             <select id="base-select" class="base-select"
               aria-label="base branch for new chat threads"></select>
           </label>
+          <div class="repo-actions">
+            <button id="browse-btn" class="merge-btn ghost" hidden>browse files</button>
+            <button id="pull-btn" class="merge-btn ghost" hidden>pull</button>
+            <button id="push-btn" class="merge-btn ghost" hidden>push</button>
+            <button id="merge-btn" class="merge-btn ghost" hidden>merge → base</button>
+          </div>
         </div>
-        <div class="head-right">
-          <button id="browse-btn" class="merge-btn ghost" hidden>browse files</button>
-          <button id="pull-btn" class="merge-btn ghost" hidden>pull</button>
-          <button id="push-btn" class="merge-btn ghost" hidden>push</button>
-          <button id="merge-btn" class="merge-btn ghost" hidden>merge → base</button>
-          <span id="active-status" class="status"></span>
-        </div>
-      </header>
-      <div id="transcript" class="transcript">
-        <div class="empty" id="empty-state">select or clone a project to start talking</div>
-      </div>
-      <form id="chat-form" class="chat-input" hidden>
-        <textarea id="chat-text" rows="1" placeholder="message the agent —  ⏎ to send, ⇧⏎ for newline"></textarea>
-        <button type="submit" aria-label="send">↦</button>
-      </form>
+      </section>
     </main>
   </div>
 
