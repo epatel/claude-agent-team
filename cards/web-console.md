@@ -38,6 +38,14 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
 - **Auth** — multi-user accounts (username + password, scrypt-hashed); a signed
   session cookie (Starlette `SessionMiddleware`, secret in `<labs>/.dev-lab/secret`).
   The `/ws` endpoint is gated by the same cookie.
+- **Access model** — the **first registered user is the super-user** (no invite);
+  every later registration must redeem an invite code the super-user mints
+  (`POST /api/admin/invites`). Super-users manage the user db via `/api/admin/*`:
+  list users, block/unblock, reset password, delete (can't block/delete
+  themselves). A super-user can't lock themselves out. Blocked users fail login
+  and have any live session rejected. The ⚙ admin panel (sidebar, super-only)
+  drives all of this. Migration #5 adds `users.is_super`/`users.blocked` + the
+  `invites` table and retroactively promotes the earliest existing user to super.
 - **Projects** — auto-discovered from existing checkouts in `labs/`, or created by
   cloning a git URL (`GITHUB_TOKEN`-injected for private). Names are single dir
   segments.

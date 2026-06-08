@@ -81,6 +81,15 @@ def build_app(
         user = auth.get_user(conn, uid) if uid else None
         if user is None:
             raise HTTPException(status_code=401, detail="not authenticated")
+        if user["blocked"]:
+            request.session.clear()
+            raise HTTPException(status_code=403, detail="account blocked")
+        return user
+
+    def require_super(request: Request) -> sqlite3.Row:
+        user = current_user(request)
+        if not user["is_super"]:
+            raise HTTPException(status_code=403, detail="super-user only")
         return user
 
     @app.post("/api/register")
@@ -88,14 +97,26 @@ def build_app(
         data = await request.json()
         username = (data.get("username") or "").strip()
         password = data.get("password") or ""
+        invite = (data.get("invite") or "").strip()
         if not username or not password:
             raise HTTPException(400, "username and password required")
+        # The first ever user is the super-user and needs no invite. Everyone
+        # after must redeem a valid, unused invite code.
+        first_user = auth.count_users(conn) == 0
+        if not first_user:
+            row = auth.get_invite(conn, invite)
+            if row is None or row["used_by"] is not None:
+                raise HTTPException(403, "a valid invite code is required to register")
         try:
-            uid = auth.create_user(conn, username, password)
+            uid = auth.create_user(conn, username, password, is_super=first_user)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+        if not first_user and not auth.consume_invite(conn, invite, uid):
+            # Lost a race for the same code — undo the half-made account.
+            auth.delete_user(conn, uid)
+            raise HTTPException(403, "a valid invite code is required to register")
         request.session["user_id"] = uid
-        return {"username": username}
+        return {"username": username, "is_super": bool(first_user)}
 
     @app.post("/api/login")
     async def login(request: Request) -> dict:
@@ -103,8 +124,10 @@ def build_app(
         user = auth.verify_user(conn, data.get("username", ""), data.get("password", ""))
         if user is None:
             raise HTTPException(401, "invalid credentials")
+        if user["blocked"]:
+            raise HTTPException(403, "account blocked")
         request.session["user_id"] = user["id"]
-        return {"username": user["username"]}
+        return {"username": user["username"], "is_super": bool(user["is_super"])}
 
     @app.post("/api/logout")
     async def logout(request: Request) -> dict:
@@ -113,7 +136,78 @@ def build_app(
 
     @app.get("/api/me")
     async def me(request: Request) -> dict:
-        return {"username": current_user(request)["username"]}
+        user = current_user(request)
+        return {"username": user["username"], "is_super": bool(user["is_super"])}
+
+    # --- Admin: user db + invites (super-user only) -----------------------
+
+    def _user_dict(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "username": row["username"],
+            "is_super": bool(row["is_super"]),
+            "blocked": bool(row["blocked"]),
+            "created_at": row["created_at"],
+        }
+
+    @app.get("/api/admin/users")
+    async def admin_list_users(request: Request) -> list[dict]:
+        require_super(request)
+        return [_user_dict(u) for u in auth.list_users(conn)]
+
+    @app.post("/api/admin/users/{user_id}/block")
+    async def admin_block_user(user_id: int, request: Request) -> dict:
+        me_row = require_super(request)
+        data = await request.json()
+        blocked = bool(data.get("blocked", True))
+        target = auth.get_user(conn, user_id)
+        if target is None:
+            raise HTTPException(404, "no such user")
+        if user_id == me_row["id"]:
+            raise HTTPException(400, "you cannot block yourself")
+        auth.set_blocked(conn, user_id, blocked)
+        return {"id": user_id, "blocked": blocked}
+
+    @app.post("/api/admin/users/{user_id}/password")
+    async def admin_reset_password(user_id: int, request: Request) -> dict:
+        require_super(request)
+        data = await request.json()
+        password = data.get("password") or ""
+        if not password:
+            raise HTTPException(400, "password required")
+        if auth.get_user(conn, user_id) is None:
+            raise HTTPException(404, "no such user")
+        auth.set_password(conn, user_id, password)
+        return {"id": user_id, "ok": True}
+
+    @app.delete("/api/admin/users/{user_id}")
+    async def admin_delete_user(user_id: int, request: Request) -> dict:
+        me_row = require_super(request)
+        if auth.get_user(conn, user_id) is None:
+            raise HTTPException(404, "no such user")
+        if user_id == me_row["id"]:
+            raise HTTPException(400, "you cannot delete yourself")
+        auth.delete_user(conn, user_id)
+        return {"id": user_id, "deleted": True}
+
+    @app.get("/api/admin/invites")
+    async def admin_list_invites(request: Request) -> list[dict]:
+        require_super(request)
+        return [
+            {
+                "code": i["code"],
+                "created_at": i["created_at"],
+                "used_by": i["used_by"],
+                "used_at": i["used_at"],
+            }
+            for i in auth.list_invites(conn)
+        ]
+
+    @app.post("/api/admin/invites")
+    async def admin_create_invite(request: Request) -> dict:
+        me_row = require_super(request)
+        code = auth.create_invite(conn, me_row["id"])
+        return {"code": code}
 
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
