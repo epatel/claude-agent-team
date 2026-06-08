@@ -75,9 +75,13 @@ git -C "$REPO" add -A; git -C "$REPO" commit -q -m init
 
 env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN GITHUB_TOKEN=dummy \
   EXTENSIONS="macos=http://127.0.0.1:8970/sse" \
-  dev-lab/.venv/bin/dev-lab serve --repo "$REPO" \
-    --queue ./dev-lab-queue --db ./dev-lab.db --host 127.0.0.1 --port 8765 --poll 1
+  dev-lab/.venv/bin/dev-lab serve --repo "$REPO" --host 127.0.0.1 --port 8765 --poll 1
 ```
+
+Queue and run-history default to `~/.dev-lab/` (outside the work repo, on
+purpose). Override with `--queue` / `--db` if you want them elsewhere — but never
+put them inside `--repo`, or the lab's own files make the tree look dirty and it
+will refuse to run.
 
 **Terminal 3 — chat client:**
 ```sh
@@ -90,13 +94,13 @@ chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 \
 chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 listen
 ```
 
-You can also enqueue without a chat client:
+You can also enqueue without a chat client (same default queue as `serve`):
 ```sh
-dev-lab/.venv/bin/dev-lab submit "Add a CHANGELOG.md" --queue ./dev-lab-queue
+dev-lab/.venv/bin/dev-lab submit "Add a CHANGELOG.md"
 ```
 
-Where things land: jobs flow through `./dev-lab-queue/{pending,running,done,failed}`,
-run history is in `./dev-lab.db` (SQLite), and the agent's commits are on
+Where things land: jobs flow through `~/.dev-lab/queue/{pending,running,done,failed}`,
+run history is in `~/.dev-lab/lab.db` (SQLite), and the agent's commits are on
 `lab/…` branches in `$REPO`.
 
 ---

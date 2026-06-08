@@ -28,3 +28,6 @@ dev-lab-queue/
 *.db
 *.db-wal
 *.db-shm
+
+# Local scratch repos for manual testing
+manual-test/

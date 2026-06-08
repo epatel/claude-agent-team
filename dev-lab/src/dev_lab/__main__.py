@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import logging
 import signal
+from pathlib import Path
 
 from . import __version__
 from .config import load_config
@@ -22,8 +23,12 @@ from .queue import FileQueue
 from .server import run_server
 from .supervisor import serve
 
-DEFAULT_QUEUE = "dev-lab-queue"
-DEFAULT_DB = "dev-lab.db"
+# Runtime state lives OUTSIDE any work repo by default — writing it into the
+# repo the lab edits makes the tree look dirty (e.g. SQLite WAL sidecars) and the
+# clean-tree check refuses to run. Override with --queue/--db.
+_STATE_DIR = Path.home() / ".dev-lab"
+DEFAULT_QUEUE = str(_STATE_DIR / "queue")
+DEFAULT_DB = str(_STATE_DIR / "lab.db")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
