@@ -8,6 +8,8 @@ with per-component venvs; the owner is a single developer/small team.
 
 The shared plan lives in `project-plan.md` — read it first for goal, milestones,
 settled decisions, and open questions. Reference it from any subagent prompt.
+New here? `HANDOFF.md` is the quick "where are we, what's left, what to watch out
+for" orientation.
 
 ## Cards
 
