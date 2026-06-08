@@ -42,8 +42,9 @@ env -u ANTHROPIC_API_KEY GITHUB_TOKEN=<token> \
 ```
 
 Open `http://127.0.0.1:8770`, **register** an account, then:
-- **New project** → name + git URL clones it into `labs/<name>` (or drop an
-  existing checkout into `labs/` and it auto-appears).
+- **New project** → paste a git URL; it clones into `labs/<repo-name>` (the name
+  is derived from the URL; a second clone of the same repo gets a `_2` suffix).
+  Or drop an existing checkout into `labs/` and it auto-appears.
 - Pick a project on the left, chat on the right. Follow-ups continue the same
   branch with the same agent context; assistant replies render as markdown +
   mermaid; tool calls show as live activity.

@@ -93,11 +93,9 @@ $("#np-cancel").addEventListener("click", () => {
 });
 $("#new-project-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const name = $("#np-name").value.trim();
   const remote_url = $("#np-url").value.trim();
   try {
-    await api("/api/projects", { method: "POST", body: JSON.stringify({ name, remote_url }) });
-    $("#np-name").value = "";
+    await api("/api/projects", { method: "POST", body: JSON.stringify({ remote_url }) });
     $("#np-url").value = "";
     $("#new-project-form").hidden = true;
     $("#new-project-btn").hidden = false;

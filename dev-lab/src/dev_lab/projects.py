@@ -20,11 +20,17 @@ from .agent import run_task as _run_task
 from .config import Config
 from .session import LabSession, RunTask, TurnResult
 
-_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-
 
 class ProjectError(RuntimeError):
     pass
+
+
+def _derive_name(remote_url: str) -> str:
+    """Repo name from a git URL: …/owner/foo.git or git@host:owner/foo -> 'foo'."""
+    tail = remote_url.rstrip("/").replace(":", "/").rsplit("/", 1)[-1]
+    if tail.endswith(".git"):
+        tail = tail[:-4]
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", tail).strip("-._") or "project"
 
 
 class ProjectManager:
@@ -62,15 +68,32 @@ class ProjectManager:
                     db.create_project(self.conn, name=child.name, path=str(child))
         return db.list_projects(self.conn)
 
-    def create(self, name: str, remote_url: str) -> sqlite3.Row:
-        """Clone ``remote_url`` into labs/<name> and register it."""
-        if not _NAME_RE.match(name):
-            raise ProjectError(f"invalid project name: {name!r} (use letters, digits, . _ -)")
-        if db.get_project_by_name(self.conn, name) is not None:
-            raise ProjectError(f"project already exists: {name}")
+    def _unique_name(self, base: str) -> str:
+        """``base`` if free, else ``base_2`` / ``base_3`` / … (avoids db + dir clashes)."""
+        def taken(name: str) -> bool:
+            return (
+                db.get_project_by_name(self.conn, name) is not None
+                or (self.labs_dir / name).exists()
+            )
+
+        if not taken(base):
+            return base
+        n = 2
+        while taken(f"{base}_{n}"):
+            n += 1
+        return f"{base}_{n}"
+
+    def create(self, remote_url: str) -> sqlite3.Row:
+        """Clone ``remote_url`` into labs/<repo-name> and register it.
+
+        The name is derived from the repo (``…/foo.git`` -> ``foo``); a collision
+        gets a ``_2`` / ``_3`` / … suffix.
+        """
+        remote_url = remote_url.strip()
+        if not remote_url:
+            raise ProjectError("a git URL is required")
+        name = self._unique_name(_derive_name(remote_url))
         dest = self.labs_dir / name
-        if dest.exists():
-            raise ProjectError(f"path already exists: {dest}")
 
         clone = subprocess.run(
             ["git", "clone", "--quiet", self._authed_url(remote_url), str(dest)],

@@ -119,10 +119,9 @@ def build_app(
     async def create_project(request: Request) -> dict:
         current_user(request)
         data = await request.json()
-        name = (data.get("name") or "").strip()
         remote_url = (data.get("remote_url") or "").strip()
         try:
-            row = pm.create(name, remote_url)
+            row = pm.create(remote_url)
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})

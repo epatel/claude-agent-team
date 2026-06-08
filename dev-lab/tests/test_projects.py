@@ -27,29 +27,32 @@ def _pm(tmp_path, run_task=None):
     return ProjectManager(**kwargs), conn, tmp_path / "labs"
 
 
-def test_create_clones_and_registers(tmp_path):
-    src = tmp_path / "src"
+def test_create_derives_name_from_url(tmp_path):
+    src = tmp_path / "myrepo"
     _src_repo(src)
     pm, _conn, labs = _pm(tmp_path)
 
-    row = pm.create("myproj", str(src))
+    row = pm.create(str(src))
 
-    assert row["name"] == "myproj"
-    assert (labs / "myproj" / ".git").exists()
-    assert (labs / "myproj" / "README.md").exists()
+    assert row["name"] == "myrepo"  # derived from the repo path, not a given name
+    assert (labs / "myrepo" / ".git").exists()
+    assert (labs / "myrepo" / "README.md").exists()
 
 
-def test_create_rejects_bad_name_and_dupes(tmp_path):
-    src = tmp_path / "src"
+def test_create_dedupes_with_suffix(tmp_path):
+    src = tmp_path / "myrepo"
     _src_repo(src)
     pm, _conn, _labs = _pm(tmp_path)
 
-    with pytest.raises(ProjectError):
-        pm.create("bad/name", str(src))
+    assert pm.create(str(src))["name"] == "myrepo"
+    assert pm.create(str(src))["name"] == "myrepo_2"
+    assert pm.create(str(src))["name"] == "myrepo_3"
 
-    pm.create("ok", str(src))
-    with pytest.raises(ProjectError):
-        pm.create("ok", str(src))
+
+def test_create_rejects_empty_url(tmp_path):
+    pm, _conn, _labs = _pm(tmp_path)
+    with pytest.raises(ProjectError, match="git URL"):
+        pm.create("")
 
 
 def test_discover_finds_existing_checkout(tmp_path):
@@ -70,12 +73,12 @@ def test_merge_to_base_lands_work(tmp_path):
         return AgentResult("ok", 1, False, 0.0, session_id="s")
 
     pm, _conn, labs = _pm(tmp_path, run_task=fake)
-    pid = pm.create("p", str(src))["id"]
+    pid = pm.create(str(src))["id"]
     asyncio.run(pm.run_turn(pid, "add feature"))  # commits feature.txt on chat/<ts>
 
     result = asyncio.run(pm.merge_to_base(pid))
 
-    clone = labs / "p"
+    clone = labs / "src"
     base = result["base"]
     assert result["branch"].startswith("chat/")
     got = subprocess.run(
@@ -88,7 +91,7 @@ def test_merge_without_work_errors(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)
     pm, _conn, _labs = _pm(tmp_path)
-    pid = pm.create("p", str(src))["id"]
+    pid = pm.create(str(src))["id"]
     with pytest.raises(ProjectError, match="no work to merge"):
         asyncio.run(pm.merge_to_base(pid))
 
@@ -102,7 +105,7 @@ def test_run_turn_persists_messages_and_branch(tmp_path):
         return AgentResult("did it", 1, False, 0.0, session_id="sess-9")
 
     pm, conn, _labs = _pm(tmp_path, run_task=fake)
-    pid = pm.create("p", str(src))["id"]
+    pid = pm.create(str(src))["id"]
 
     result = asyncio.run(pm.run_turn(pid, "do a thing"))
 

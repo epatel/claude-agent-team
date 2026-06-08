@@ -53,17 +53,19 @@ def test_register_login_logout(tmp_path):
 
 
 def test_create_and_list_projects(tmp_path):
-    _src_repo(tmp_path / "src")
+    _src_repo(tmp_path / "myrepo")
     client, _ = _client(tmp_path)
     client.post("/api/register", json={"username": "a", "password": "p"})
 
-    src = str(tmp_path / "src")
-    r = client.post("/api/projects", json={"name": "proj", "remote_url": src})
-    assert r.status_code == 200 and r.json()["name"] == "proj"
-    assert "proj" in [p["name"] for p in client.get("/api/projects").json()]
+    src = str(tmp_path / "myrepo")
+    r = client.post("/api/projects", json={"remote_url": src})
+    assert r.status_code == 200 and r.json()["name"] == "myrepo"  # derived from the url
+    assert "myrepo" in [p["name"] for p in client.get("/api/projects").json()]
 
-    bad = client.post("/api/projects", json={"name": "bad/name", "remote_url": src})
-    assert bad.status_code == 400
+    # a second clone of the same repo gets a suffix
+    assert client.post("/api/projects", json={"remote_url": src}).json()["name"] == "myrepo_2"
+    # empty url is rejected
+    assert client.post("/api/projects", json={"remote_url": ""}).status_code == 400
 
 
 def test_messages_endpoint(tmp_path):
