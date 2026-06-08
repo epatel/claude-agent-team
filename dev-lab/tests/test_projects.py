@@ -119,6 +119,61 @@ def test_set_base_branch_rejects_unknown(tmp_path):
         asyncio.run(pm.set_base_branch(pid, "nope"))
 
 
+def test_list_branches_reports_branches_and_base(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    subprocess.run(["git", "-C", str(labs / "src"), "branch", "release"], check=True)
+
+    out = asyncio.run(pm.list_branches(pid))
+
+    assert "release" in out["branches"]
+    assert out["base"] in ("main", "master")  # repo default while unset
+
+    # once a base is configured, list_branches reports it
+    asyncio.run(pm.set_base_branch(pid, "release"))
+    assert asyncio.run(pm.list_branches(pid))["base"] == "release"
+
+
+def test_list_branches_unknown_project_errors(tmp_path):
+    pm, _conn, _labs = _pm(tmp_path)
+    with pytest.raises(ProjectError, match="no such project"):
+        asyncio.run(pm.list_branches(999))
+
+
+def test_new_session_branches_off_configured_base(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "feature.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, _conn, labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+    clone = labs / "src"
+    # Give the base its own commit so it diverges from the repo default.
+    subprocess.run(["git", "-C", str(clone), "checkout", "-q", "-b", "release"], check=True)
+    (clone / "rel.txt").write_text("r\n")
+    subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(clone), "commit", "-q", "-m", "rel"], check=True)
+    release_tip = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "release"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    asyncio.run(pm.set_base_branch(pid, "release"))
+    result = asyncio.run(pm.run_turn(pid, "add feature"))
+
+    # the chat branch's commit is parented on the configured base's tip
+    parent = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", f"{result.branch}^"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert parent == release_tip
+
+
 def test_merge_uses_configured_base(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)
