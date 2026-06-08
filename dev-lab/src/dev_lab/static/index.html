@@ -154,6 +154,19 @@
     </div>
   </dialog>
 
+  <!-- CONFIRM (reusable; replaces window.confirm) -->
+  <dialog id="confirm-dialog" class="modal modal-confirm">
+    <div class="modal-head">
+      <span id="confirm-title" class="modal-title">confirm</span>
+      <button type="button" class="modal-close ghost" data-close="confirm-dialog">close</button>
+    </div>
+    <div id="confirm-message" class="modal-body confirm-message"></div>
+    <div class="modal-foot">
+      <button type="button" id="confirm-cancel" class="ghost">cancel</button>
+      <button type="button" id="confirm-ok" class="danger">confirm</button>
+    </div>
+  </dialog>
+
   <script src="/vendor/marked.min.js"></script>
   <script src="/vendor/purify.min.js"></script>
   <script src="/vendor/mermaid.min.js"></script>
