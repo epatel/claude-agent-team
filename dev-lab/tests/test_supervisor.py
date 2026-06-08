@@ -3,6 +3,7 @@ import asyncio
 from dev_lab import db
 from dev_lab.agent import AgentResult
 from dev_lab.config import Config
+from dev_lab.events import EventBus
 from dev_lab.lab import RunResult
 from dev_lab.queue import FileQueue
 from dev_lab.supervisor import serve
@@ -80,6 +81,35 @@ def test_serve_records_runs_in_db(tmp_path):
 
     rows = conn.execute("SELECT instruction, status FROM runs ORDER BY instruction").fetchall()
     assert {(r["instruction"], r["status"]) for r in rows} == {("bad", "failed"), ("good", "done")}
+
+
+def test_serve_publishes_events_to_bus(tmp_path):
+    q = FileQueue(tmp_path)
+    q.enqueue("hello", repo="/r")
+    bus = EventBus()
+    received = []
+
+    async def fake(instruction, *, repo_path, config, commit=True, on_event=None):
+        if on_event is not None:
+            await on_event({"type": "agent_message", "text": "working"})
+        return _result()
+
+    async def scenario():
+        async with bus.subscribe() as sub:
+            task = asyncio.create_task(
+                serve(config=Config(github_token="x"), queue=q, max_jobs=1, bus=bus, run=fake)
+            )
+            while True:
+                evt = await asyncio.wait_for(sub.get(), timeout=5)
+                received.append(evt["type"])
+                if evt["type"] == "job_done":
+                    break
+            await task
+
+    asyncio.run(scenario())
+    assert "job_running" in received
+    assert "agent_message" in received
+    assert "job_done" in received
 
 
 def test_serve_recovers_inflight_job(tmp_path):

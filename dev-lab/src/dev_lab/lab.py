@@ -41,6 +41,7 @@ async def run_once(
     config: Config,
     commit: bool = True,
     branch_prefix: str = "lab/",
+    on_event: Callable[[dict], Awaitable[None]] | None = None,
     run_task: RunTask = _run_task,
 ) -> RunResult:
     """Run one instruction end to end in a local clone.
@@ -59,7 +60,8 @@ async def run_once(
     branch = f"{branch_prefix}{int(time.time())}-{_slugify(instruction)}"
     ws.create_branch(branch)
 
-    agent_result = await run_task(instruction, cwd=ws.path, model=config.model)
+    extra = {"on_event": on_event} if on_event is not None else {}
+    agent_result = await run_task(instruction, cwd=ws.path, model=config.model, **extra)
 
     commit_sha: str | None = None
     committed = False

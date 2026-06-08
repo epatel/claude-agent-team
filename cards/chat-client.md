@@ -27,10 +27,12 @@ sequenceDiagram
 
 ## Key concerns
 
-- **Transport is undecided** — candidates: WebSocket, HTTP + SSE, or an MCP
-  server on the lab side that the client drives. (Open question in the plan.)
+- **Transport is WebSocket** — the lab (`dev-lab serve`) hosts a WebSocket
+  control surface; the client submits instructions and receives a live event
+  stream (a settled transport decision; see the index in CLAUDE.md).
 - **Streaming** — the value of the client is live visibility into a long-running
-  autonomous run, so partial/streamed output is a first-class requirement.
+  autonomous run, so partial/streamed output is a first-class requirement. The
+  lab publishes job lifecycle + agent-output events over the socket.
 - **Steering** — must be able to interrupt and redirect, not just fire-and-forget.
 - **Auth** — the client may live off the Pi's LAN; the connection needs
   authentication (open question in the plan).

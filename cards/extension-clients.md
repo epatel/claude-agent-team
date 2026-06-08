@@ -29,7 +29,8 @@ sequenceDiagram
 
 - **MCP is the contract** — each capability is a tool with a typed schema; the
   lab consumes it like any other tool. Lets us add machines without changing the
-  lab's core.
+  lab's core. Transport is **HTTP+SSE** (a settled transport decision; see the
+  index in CLAUDE.md).
 - **Code reaches extensions via git**, not file transfer — the extension checks
   out the commit the lab pushed.
 - **Discovery/registration** is undecided — static config vs a registry (open

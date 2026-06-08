@@ -16,12 +16,16 @@ import signal
 from . import __version__
 from .config import load_config
 from .db import connect as db_connect
+from .events import EventBus
 from .lab import run_once
 from .queue import FileQueue
+from .server import run_server
 from .supervisor import serve
 
 DEFAULT_QUEUE = "dev-lab-queue"
 DEFAULT_DB = "dev-lab.db"
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8765
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -38,6 +42,8 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--queue", default=DEFAULT_QUEUE, help="queue directory")
     serve_p.add_argument("--db", default=DEFAULT_DB, help="SQLite path for run history")
     serve_p.add_argument("--poll", type=float, default=5.0, help="seconds between polls when idle")
+    serve_p.add_argument("--host", default=DEFAULT_HOST, help="control-surface WebSocket host")
+    serve_p.add_argument("--port", type=int, default=DEFAULT_PORT, help="control-surface port")
 
     submit_p = sub.add_parser("submit", help="enqueue an instruction for a running supervisor")
     submit_p.add_argument("instruction")
@@ -76,6 +82,7 @@ def _cmd_serve(args) -> int:
     config = load_config()
     queue = FileQueue(args.queue)
     db = db_connect(args.db)
+    bus = EventBus()
     log = logging.getLogger("dev_lab")
 
     async def _main() -> int:
@@ -83,21 +90,35 @@ def _cmd_serve(args) -> int:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
-        log.info("supervisor up; queue=%s db=%s default_repo=%s", args.queue, args.db, args.repo)
-        return await serve(
+        log.info(
+            "lab up; queue=%s db=%s control=ws://%s:%d default_repo=%s",
+            args.queue, args.db, args.host, args.port, args.repo,
+        )
+        supervisor = serve(
             config=config,
             queue=queue,
             default_repo=args.repo,
             poll_interval=args.poll,
             stop_event=stop,
             db=db,
+            bus=bus,
         )
+        control = run_server(
+            host=args.host,
+            port=args.port,
+            queue=queue,
+            bus=bus,
+            default_repo=args.repo,
+            stop_event=stop,
+        )
+        processed, _ = await asyncio.gather(supervisor, control)
+        return processed
 
     try:
         processed = asyncio.run(_main())
     finally:
         db.close()
-    log.info("supervisor stopped after %d job(s)", processed)
+    log.info("lab stopped after %d job(s)", processed)
     return 0
 
 

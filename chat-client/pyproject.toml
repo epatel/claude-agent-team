@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chat-client"
-version = "0.0.1"
+version = "0.1.0"
 description = "Control surface to start, steer, and observe the dev lab."
 requires-python = ">=3.11"
 dependencies = [
-    # TODO(M3): add the control-surface transport client once chosen
-    # (WebSocket / HTTP+SSE / MCP) — see open questions in project-plan.md.
+    "websockets>=13,<16",
 ]
 
 [project.optional-dependencies]

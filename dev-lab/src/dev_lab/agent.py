@@ -7,6 +7,7 @@ commits, so the agent is told not to touch git.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,11 +50,14 @@ async def run_task(
     model: str,
     max_turns: int = 40,
     effort: str = "high",
+    on_event: Callable[[dict], Awaitable[None]] | None = None,
 ) -> AgentResult:
     """Run the agent loop for one instruction in ``cwd``; return a result summary.
 
     Uses ``bypassPermissions`` so the unattended lab does not block on approval
-    prompts; the tool set and ``cwd`` bound what the agent can touch.
+    prompts; the tool set and ``cwd`` bound what the agent can touch. If
+    ``on_event`` is given, each assistant text block is streamed to it as
+    ``{"type": "agent_message", "text": ...}``.
     """
     options = ClaudeAgentOptions(
         cwd=str(cwd),
@@ -75,6 +79,8 @@ async def run_task(
             for block in message.content:
                 if isinstance(block, TextBlock):
                     summary_parts.append(block.text)
+                    if on_event is not None:
+                        await on_event({"type": "agent_message", "text": block.text})
         elif isinstance(message, ResultMessage):
             num_turns = message.num_turns
             is_error = message.is_error

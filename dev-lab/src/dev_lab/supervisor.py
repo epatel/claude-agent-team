@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .config import Config
 from .db import record_run
+from .events import EventBus
 from .lab import RunResult, run_once
 from .queue import FileQueue
 
@@ -43,6 +44,7 @@ async def serve(
     max_jobs: int | None = None,
     stop_event: asyncio.Event | None = None,
     db: sqlite3.Connection | None = None,
+    bus: EventBus | None = None,
     run: RunOnce = run_once,
 ) -> int:
     """Process queued jobs until stopped; return the number of jobs processed.
@@ -78,13 +80,26 @@ async def serve(
                     db, job_id=job.id, instruction=job.instruction, repo=None,
                     status="failed", error=msg,
                 )
+            if bus is not None:
+                await bus.publish({"type": "job_failed", "job_id": job.id, "error": msg})
             logger.error("job %s failed: no repo specified", job.id)
             processed += 1
             continue
 
+        extra: dict = {}
+        if bus is not None:
+            await bus.publish(
+                {"type": "job_running", "job_id": job.id, "instruction": job.instruction}
+            )
+
+            async def _on_event(event: dict, _job_id: str = job.id) -> None:
+                await bus.publish({**event, "job_id": _job_id})
+
+            extra["on_event"] = _on_event
+
         logger.info("running job %s: %s", job.id, job.instruction)
         try:
-            result = await run(job.instruction, repo_path=repo, config=config)
+            result = await run(job.instruction, repo_path=repo, config=config, **extra)
         except Exception as exc:  # noqa: BLE001 — keep the lab alive across any task failure
             queue.fail(job, repr(exc))
             if db is not None:
@@ -92,6 +107,8 @@ async def serve(
                     db, job_id=job.id, instruction=job.instruction, repo=repo,
                     status="failed", error=repr(exc),
                 )
+            if bus is not None:
+                await bus.publish({"type": "job_failed", "job_id": job.id, "error": repr(exc)})
             logger.exception("job %s failed", job.id)
         else:
             queue.complete(job)
@@ -101,6 +118,16 @@ async def serve(
                     status="done", branch=result.branch, base_sha=result.base_sha,
                     commit_sha=result.commit_sha, committed=result.committed,
                     cost_usd=result.agent.total_cost_usd,
+                )
+            if bus is not None:
+                await bus.publish(
+                    {
+                        "type": "job_done",
+                        "job_id": job.id,
+                        "branch": result.branch,
+                        "commit_sha": result.commit_sha,
+                        "committed": result.committed,
+                    }
                 )
             logger.info(
                 "job %s done: branch=%s committed=%s", job.id, result.branch, result.committed
