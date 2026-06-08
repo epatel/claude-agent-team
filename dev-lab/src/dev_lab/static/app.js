@@ -474,6 +474,12 @@ async function renderMarkdown(el, text, baseDir) {
       }
     }
   }
+  // Syntax-highlight fenced code blocks (skip mermaid — handled below).
+  for (const code of el.querySelectorAll("pre code")) {
+    if (code.classList.contains("language-mermaid")) continue;
+    const cls = [...code.classList].find((c) => c.startsWith("language-"));
+    highlightInto(code, code.textContent, cls ? cls.slice("language-".length) : "");
+  }
   const blocks = el.querySelectorAll("code.language-mermaid");
   let i = 0;
   for (const code of blocks) {
@@ -871,6 +877,55 @@ function dirOf(path) {
   return i === -1 ? "" : path.slice(0, i);
 }
 
+// Map a filename to a highlight.js language id. Covers common source files by
+// extension, plus a few well-known basenames (Dockerfile, Makefile, …). Returns
+// "" when we have no good guess — highlightInto then falls back to auto-detect.
+const EXT_LANG = {
+  js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "javascript",
+  ts: "typescript", tsx: "typescript", py: "python", pyw: "python",
+  rb: "ruby", go: "go", rs: "rust", java: "java", kt: "kotlin", kts: "kotlin",
+  swift: "swift", c: "c", h: "c", cc: "cpp", cpp: "cpp", cxx: "cpp",
+  hpp: "cpp", hh: "cpp", cs: "csharp", php: "php", pl: "perl", pm: "perl",
+  lua: "lua", r: "r", m: "objectivec", sh: "shell", bash: "shell",
+  zsh: "shell", fish: "shell", sql: "sql", html: "xml", htm: "xml",
+  xml: "xml", svg: "xml", vue: "xml", css: "css", scss: "scss", less: "less",
+  json: "json", yaml: "yaml", yml: "yaml", toml: "ini", ini: "ini",
+  cfg: "ini", conf: "ini", md: "markdown", markdown: "markdown",
+  diff: "diff", patch: "diff", graphql: "graphql", gql: "graphql",
+};
+const BASENAME_LANG = {
+  dockerfile: "dockerfile", makefile: "makefile", gnumakefile: "makefile",
+  cmakelists: "makefile", gemfile: "ruby", rakefile: "ruby",
+  ".bashrc": "shell", ".zshrc": "shell", ".gitignore": "plaintext",
+};
+
+function langForFilename(name) {
+  const base = name.toLowerCase();
+  if (BASENAME_LANG[base]) return BASENAME_LANG[base];
+  const noext = base.replace(/\.[^.]+$/, "");
+  if (BASENAME_LANG[noext]) return BASENAME_LANG[noext];
+  const ext = base.includes(".") ? base.slice(base.lastIndexOf(".") + 1) : "";
+  return EXT_LANG[ext] || "";
+}
+
+// Syntax-highlight `code` into the given <code> element with highlight.js.
+// Falls back to plain text if hljs is unavailable, the language is unknown, or
+// highlighting throws — never lets a render error blank the viewer.
+function highlightInto(code, text, lang) {
+  text = text || "";
+  if (typeof hljs === "undefined") { code.textContent = text; return; }
+  try {
+    if (lang && lang !== "plaintext" && hljs.getLanguage(lang)) {
+      code.innerHTML = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
+    } else {
+      code.innerHTML = hljs.highlightAuto(text).value;
+    }
+    code.classList.add("hljs");
+  } catch {
+    code.textContent = text;
+  }
+}
+
 function renderFile(container, name, data) {
   container.innerHTML = "";
   const crumb = document.createElement("div");
@@ -909,7 +964,9 @@ function renderFile(container, name, data) {
   } else {
     const pre = document.createElement("pre");
     pre.className = "file-code";
-    pre.textContent = data.content;
+    const code = document.createElement("code");
+    highlightInto(code, data.content, langForFilename(name));
+    pre.appendChild(code);
     view.appendChild(pre);
   }
   container.appendChild(view);
