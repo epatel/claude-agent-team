@@ -20,6 +20,7 @@ self-contained.
 - [architecture](cards/architecture.md) — cross-component work, data flow, onboarding, "how do the pieces fit"
 
 ### Domains
+- [web-console](cards/web-console.md) — the browser UI, login, projects in labs/, talking to a project (v2 primary surface)
 - [dev-lab](cards/dev-lab.md) — the autonomous agent loop, sessions, anything running on the Pi
 - [chat-client](cards/chat-client.md) — starting/steering the lab, control surface, streaming agent output
 - [extension-clients](cards/extension-clients.md) — remote build/test, capability providers, MCP servers on other machines

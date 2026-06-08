@@ -32,6 +32,30 @@ bare `dev-lab` command.
 
 ---
 
+## Web console (v2 — the main way to use it)
+
+A multi-project browser app: log in, pick a project, chat with its agent.
+
+```sh
+env -u ANTHROPIC_API_KEY GITHUB_TOKEN=<token> \
+  dev-lab/.venv/bin/dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
+```
+
+Open `http://127.0.0.1:8770`, **register** an account, then:
+- **New project** → name + git URL clones it into `labs/<name>` (or drop an
+  existing checkout into `labs/` and it auto-appears).
+- Pick a project on the left, chat on the right. Follow-ups continue the same
+  branch with the same agent context; assistant replies render as markdown +
+  mermaid; tool calls show as live activity.
+
+State (SQLite + cookie secret) lives under `~/labs/.dev-lab/`. Each project is its
+own clone/agent/branch. For LAN/remote access use `--host 0.0.0.0` **only on a
+trusted network** — auth exists but there's no TLS yet (put it behind a reverse
+proxy / Tailscale).
+
+The CLI surface below (`run` / `serve` / `submit` / `chat-client`) is the older
+single-project path, still functional.
+
 ## A. Test / local (one machine)
 
 ### A0. No credits — unit tests

@@ -46,11 +46,21 @@ Each line is a settled choice no agent should reopen without flagging here.
 - 2026-06-08 — The chat client has an **interactive session mode** (`chat-client chat`): each connection gets a persistent `chat/<ts>` branch and the agent conversation is **resumed** across turns (SDK `resume`), so follow-ups build on prior work instead of each message making a fresh branch. `submit` stays for independent fire-and-forget jobs. A single lab lock serializes all agent runs (sessions + queue) over the one working clone. Live activity streams `agent_message` + `tool_use` events.
 - 2026-06-08 — Control transports: **chat/UI ↔ lab over WebSocket** (`dev-lab serve` hosts a WebSocket control surface; clients submit instructions and receive a live event stream via an in-process event bus). **Extension MCP servers use HTTP+SSE.**
 - 2026-06-08 — Durable runtime data (run history, and future chat logs) is stored in **SQLite with a migration runner** (`dev_lab/db.py`, append-only migrations keyed on `PRAGMA user_version`) — not ad-hoc files. The job **queue** stays a filesystem work-state by design (atomic-rename claiming); SQLite is for records/logs/history.
+- 2026-06-08 — **v2 redesign — web console.** The primary surface is now a **FastAPI web app** (`dev-lab web`): a login page (multi-user accounts, scrypt + signed session cookie), a project list, and per-project chat in the browser. The CLI `serve`/`chat-client`/queue remain as the older single-project surface (secondary).
+- 2026-06-08 — **Multi-project `labs/`.** Projects live as separate git clones under `labs/` (auto-discovered, or created by cloning a URL). Each is its own Claude agent/context (own clone/cwd/branch/resumed session) — which removes the single-working-clone limitation; turns within a project serialize, across projects run concurrently. All lab state lives under `<labs>/.dev-lab/` (SQLite + cookie secret).
+- 2026-06-08 — **Frontend is no-build vanilla JS** served as static files; assistant output rendered as markdown (`marked`) + mermaid, sanitized with `DOMPurify`; libs vendored under `static/vendor/` (offline-friendly, no Node toolchain).
 - 2026-06-08 — Documentation follows the memention.net **Context Cards** + **Shared Project Plan** patterns; feature-first / two-tier deferred until code exists.
 
 ## Current state / handoff
 
-**M0–M4 done** (committed on branch `m0-skeleton`).
+**M0–M4 done** (branch `m0-skeleton`). **v2 web console done** (branch
+`v2-web-console`): multi-project `labs/` backend, FastAPI app with multi-user
+auth, and a vanilla web UI (login + project sidebar + chat with markdown/mermaid)
+— live-verified end-to-end (login → clone project → cookie-authed WebSocket chat
+→ streamed tool+markdown+mermaid → commit → per-project persistence). New files:
+`projects.py`, `auth.py`, `web.py`, `static/`; new command `dev-lab web`; SQLite
+migrations #2 (projects/messages) and #3 (users). Neither branch merged to
+`main`.
 
 Repo has three `src`-layout components — `dev-lab/`, `chat-client/`,
 `extensions/macos-build-test/` — each with its own venv and `pyproject.toml`. A
