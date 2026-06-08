@@ -241,12 +241,41 @@ class ProjectManager:
         return {"sha": sha, "subject": subject, "diff": diff}
 
     async def list_tree(self, project_id: int, path: str = "") -> dict:
-        """One directory level of a project's working tree (repo browser)."""
+        """One directory level of a project's working tree (repo browser).
+
+        Lists what's actually checked out on disk, and annotates each entry with
+        its status relative to the project's base branch (``new`` / ``modified``
+        / a dir containing changes) so divergence is visible rather than
+        silent. Also returns the current ``branch``, the ``base`` it's compared
+        against, and ``missing`` — the count of files that exist on base but not
+        in the checkout (e.g. when parked on a chat branch cut before they were
+        added) — so the UI can explain why the listing may look short.
+        """
         ws = self._workspace(project_id)
         async with self.lock(project_id):
             ws.ensure_repo()
             entries = ws.list_tree(path)
-        return {"path": path, "entries": entries}
+            base = self._base_branch(ws, project_id)
+            branch = ws.current_branch()
+            status = ws.diff_status(base)
+        for entry in entries:
+            if entry["type"] == "file":
+                entry["status"] = status.get(entry["path"])
+            else:
+                prefix = entry["path"] + "/"
+                entry["status"] = (
+                    "modified"
+                    if any(p.startswith(prefix) and s != "deleted" for p, s in status.items())
+                    else None
+                )
+        missing = sum(1 for s in status.values() if s == "deleted")
+        return {
+            "path": path,
+            "entries": entries,
+            "branch": branch,
+            "base": base,
+            "missing": missing,
+        }
 
     async def read_file(self, project_id: int, path: str) -> dict:
         """Read one working-tree file from a project for display."""

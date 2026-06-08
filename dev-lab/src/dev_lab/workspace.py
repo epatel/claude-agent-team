@@ -220,6 +220,32 @@ class Workspace:
             raise WorkspaceError(f"path escapes the repo: {rel!r}")
         return target
 
+    def diff_status(self, base: str) -> dict[str, str]:
+        """Map each path that differs from ``base`` to its change kind.
+
+        Compares the *working tree* (committed-on-this-branch changes plus
+        uncommitted edits) against ``base``, so the repo browser can mark which
+        files have diverged and surface files that exist only on ``base``. Keys
+        are repo-relative paths; values are ``"new"`` (absent from base),
+        ``"modified"`` (content differs), or ``"deleted"`` (in base, absent from
+        the working tree). Returns ``{}`` when the tree matches ``base``.
+        """
+        status: dict[str, str] = {}
+        for line in self._git("diff", "--name-status", base).splitlines():
+            cols = line.split("\t")
+            code = cols[0][:1]
+            path = cols[-1]  # for renames git lists the new path last
+            if code == "A":
+                status[path] = "new"
+            elif code == "D":
+                status[path] = "deleted"
+            else:  # M, T, C, R, …
+                status[path] = "modified"
+        # Untracked working-tree files aren't in the diff; flag them as new.
+        for path in self._git("ls-files", "--others", "--exclude-standard").splitlines():
+            status.setdefault(path, "new")
+        return status
+
     def list_tree(self, rel: str = "") -> list[dict]:
         """List one directory level of the working tree (``.git`` excluded).
 

@@ -267,8 +267,19 @@ def test_tree_and_file_endpoints(tmp_path):
     assert "README.md" in names
     assert ".git" not in names  # .git is hidden from the browser
 
+    # A fresh clone sits on its base branch with nothing diverged.
+    assert tree["branch"] == tree["base"]
+    assert tree["missing"] == 0
+    assert all(e["status"] is None for e in tree["entries"])
+
     content = client.get(f"/api/projects/{pid}/file?path=README.md").json()
     assert content["binary"] is False and content["content"] == "seed\n"
+
+    # An untracked file in the checkout is listed and flagged new vs base.
+    (tmp_path / "labs" / proj["name"] / "scratch.txt").write_text("temp\n")
+    tree2 = client.get(f"/api/projects/{pid}/tree").json()
+    scratch = next(e for e in tree2["entries"] if e["name"] == "scratch.txt")
+    assert scratch["status"] == "new"
 
     # path traversal is refused
     assert client.get(f"/api/projects/{pid}/file?path=../../etc/passwd").status_code == 400
