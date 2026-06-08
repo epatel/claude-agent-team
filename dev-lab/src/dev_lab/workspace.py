@@ -94,6 +94,33 @@ class Workspace:
             raise WorkspaceError(f"merge of {branch} into {base} failed (conflicts?): {detail}")
         return self.head_sha()
 
+    def pull(self, branch: str) -> str:
+        """Fast-forward ``branch`` from origin; return its new HEAD sha.
+
+        Checks out ``branch``, pulls (``--ff-only``), then restores whatever
+        branch was checked out before. Raises ``WorkspaceError`` if the pull is
+        not a fast-forward (diverged history).
+        """
+        current = self.current_branch()
+        self.checkout(branch)
+        proc = subprocess.run(
+            ["git", "pull", "--ff-only", "origin", branch],
+            cwd=self.path,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            if current != branch:
+                self.checkout(current)
+            detail = proc.stderr.strip() or proc.stdout.strip()
+            raise WorkspaceError(
+                f"pull of {branch} from origin failed (not a fast-forward?): {detail}"
+            )
+        sha = self.head_sha()
+        if current != branch:
+            self.checkout(current)
+        return sha
+
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 

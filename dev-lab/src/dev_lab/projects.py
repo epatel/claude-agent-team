@@ -149,6 +149,16 @@ class ProjectManager:
             ws.checkout(branch)  # restore so the session can keep going
         return {"base": base, "branch": branch, "commit": merged}
 
+    async def pull_base(self, project_id: int) -> dict:
+        """Pull the project's base branch from origin (locally, fast-forward only)."""
+        session = self.open(project_id)
+        ws = session.workspace
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            base = ws.default_branch()
+            commit = ws.pull(base)
+        return {"base": base, "commit": commit}
+
     async def run_turn(self, project_id: int, message: str, *, on_event=None) -> TurnResult:
         """Run one chat turn for a project: persist message, run, persist state."""
         session = self.open(project_id)
