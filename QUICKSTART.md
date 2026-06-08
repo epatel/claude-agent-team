@@ -85,8 +85,11 @@ will refuse to run.
 
 **Terminal 3 — chat client:**
 ```sh
-# stream one task to completion (the agent works in the lab's --repo; it can pwd
-# to find the path the extension should check out)
+# interactive session: type messages, watch activity; follow-ups continue the
+# same chat/<ts> branch with the same agent context
+chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 chat
+
+# or one fire-and-forget job, streamed to completion (own lab/<ts> branch)
 chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 \
   submit "Run this project's tests against HEAD using the macos run_tests tool, and report the result."
 

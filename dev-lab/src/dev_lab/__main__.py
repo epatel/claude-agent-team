@@ -92,6 +92,7 @@ def _cmd_serve(args) -> int:
 
     async def _main() -> int:
         stop = asyncio.Event()
+        lock = asyncio.Lock()  # shared: only one agent run at a time over the clone
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
@@ -107,13 +108,16 @@ def _cmd_serve(args) -> int:
             stop_event=stop,
             db=db,
             bus=bus,
+            lock=lock,
         )
         control = run_server(
             host=args.host,
             port=args.port,
             queue=queue,
             bus=bus,
+            config=config,
             default_repo=args.repo,
+            lock=lock,
             stop_event=stop,
         )
         processed, _ = await asyncio.gather(supervisor, control)

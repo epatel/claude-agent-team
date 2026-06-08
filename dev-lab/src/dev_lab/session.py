@@ -1,0 +1,98 @@
+"""Interactive chat session: a continuing conversation on one branch.
+
+Unlike a queued job (independent, fresh branch, no memory), a session keeps a
+single working branch and resumes the agent's conversation across turns, so
+follow-up messages build on prior work. Turns run sequentially.
+"""
+
+from __future__ import annotations
+
+import re
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+from .agent import AgentResult
+from .agent import run_task as _run_task
+from .config import Config
+from .workspace import Workspace
+
+RunTask = Callable[..., Awaitable[AgentResult]]
+
+
+@dataclass(frozen=True)
+class TurnResult:
+    branch: str
+    commit_sha: str | None
+    committed: bool
+    agent: AgentResult
+
+
+def _slugify(text: str, *, max_len: int = 32) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug[:max_len].strip("-") or "chat"
+
+
+class LabSession:
+    """One conversational branch over the lab's working clone."""
+
+    def __init__(
+        self,
+        *,
+        repo_path: str | Path,
+        config: Config,
+        branch: str | None = None,
+        run_task: RunTask = _run_task,
+    ) -> None:
+        self.workspace = Workspace(Path(repo_path))
+        self.config = config
+        self.branch = branch or f"chat/{int(time.time())}"
+        self._run_task = run_task
+        self._started = False
+        self.session_id: str | None = None
+
+    async def run_turn(
+        self,
+        message: str,
+        *,
+        on_event: Callable[[dict], Awaitable[None]] | None = None,
+    ) -> TurnResult:
+        """Run one message: ensure the branch, run the agent (resumed), commit."""
+        self.workspace.ensure_repo()
+        if not self._started:
+            if self.workspace.is_dirty():
+                raise RuntimeError(
+                    f"workspace {self.workspace.path} has uncommitted changes; "
+                    "commit or stash them before starting a chat session"
+                )
+            self.workspace.create_branch(self.branch)
+            self._started = True
+        else:
+            self.workspace.checkout(self.branch)
+
+        extra: dict = {}
+        if on_event is not None:
+            extra["on_event"] = on_event
+        if self.config.extensions:
+            extra["extensions"] = self.config.extensions
+
+        result = await self._run_task(
+            message,
+            cwd=self.workspace.path,
+            model=self.config.model,
+            resume=self.session_id,
+            **extra,
+        )
+        self.session_id = result.session_id or self.session_id
+
+        commit_sha: str | None = None
+        committed = False
+        if self.workspace.is_dirty():
+            subject = message.strip().splitlines()[0][:72] if message.strip() else "chat turn"
+            commit_sha = self.workspace.commit_all(f"{subject}\n\n(lab chat: {self.branch})")
+            committed = True
+
+        return TurnResult(
+            branch=self.branch, commit_sha=commit_sha, committed=committed, agent=result
+        )

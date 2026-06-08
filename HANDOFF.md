@@ -44,12 +44,13 @@ dev-lab/                  # the autonomous lab (runs on the Pi) — Python, its 
     lab.py          # run_once(): clean-tree -> branch -> agent edits -> one commit
     queue.py        # FileQueue: pending/running/done/failed, atomic claim, crash recovery
     supervisor.py   # serve(): drain queue, fail-and-continue, publish events, record runs
+    session.py      # LabSession: interactive chat — one branch, resumed agent context per turn
     db.py           # SQLite + append-only migration runner (PRAGMA user_version)
     events.py       # in-process EventBus (pub/sub)
-    server.py       # WebSocket control surface (submit -> enqueue; bus -> clients)
+    server.py       # WebSocket control surface: submit -> queue; message -> chat session
     __main__.py     # CLI: run | serve | submit
-chat-client/              # control surface client — Python, its own venv
-  src/chat_client/{client.py (format_event), __main__.py (submit|listen)}
+chat-client/              # control surface client
+  src/chat_client/{client.py (format_event), __main__.py (chat|submit|listen)}
 extensions/macos-build-test/   # first extension — Python, its own venv
   src/macos_build_test/{builder.py (run_in_checkout), server.py (FastMCP/SSE), __main__.py (serve)}
 deploy/                   # dev-lab.service (systemd) + README.md (Pi provisioning)
@@ -57,13 +58,13 @@ cards/                    # Context Cards (architecture + domain + decision)
 project-plan.md           # milestones, decisions, open questions
 ```
 
-Versions: dev-lab 0.4.0, chat-client 0.1.0, macos-build-test 0.1.0.
+Versions: dev-lab 0.5.0, chat-client 0.2.0, macos-build-test 0.1.0.
 
 ## How to run / develop
 
 ```sh
 make setup           # create a venv per component, install editable + dev deps
-make test            # 41 tests (dev-lab 32, chat-client 5, extension 4)
+make test            # 46 tests (dev-lab 36, chat-client 6, extension 4)
 make lint            # ruff
 ```
 
@@ -87,7 +88,9 @@ not an env var.
 - **Live-verified** (real credits/sockets): M1 (instruction→commit), M3
   (chat→streamed agent output→commit), M4 (agent autonomously calling the
   extension MCP tool — proven via `CallToolRequest` log + side-effect file +
-  stdout token).
+  stdout token), and **interactive chat sessions** (two follow-up turns on one
+  `chat/<ts>` branch with resumed memory — turn 2 recalled a number from turn 1's
+  conversation that was never on disk).
 - **Tested but not on real hardware:** M2 runs uninterrupted locally; **never
   run on an actual Raspberry Pi**.
 - Live runs need: `claude` logged in, network, and spend subscription credits

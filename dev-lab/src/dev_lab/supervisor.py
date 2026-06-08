@@ -45,6 +45,7 @@ async def serve(
     stop_event: asyncio.Event | None = None,
     db: sqlite3.Connection | None = None,
     bus: EventBus | None = None,
+    lock: asyncio.Lock | None = None,
     run: RunOnce = run_once,
 ) -> int:
     """Process queued jobs until stopped; return the number of jobs processed.
@@ -99,7 +100,11 @@ async def serve(
 
         logger.info("running job %s: %s", job.id, job.instruction)
         try:
-            result = await run(job.instruction, repo_path=repo, config=config, **extra)
+            if lock is not None:
+                async with lock:  # don't run a job while a chat turn holds the clone
+                    result = await run(job.instruction, repo_path=repo, config=config, **extra)
+            else:
+                result = await run(job.instruction, repo_path=repo, config=config, **extra)
         except Exception as exc:  # noqa: BLE001 — keep the lab alive across any task failure
             queue.fail(job, repr(exc))
             if db is not None:

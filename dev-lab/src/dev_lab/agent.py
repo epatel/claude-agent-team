@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ResultMessage,
     TextBlock,
+    ToolUseBlock,
     query,
 )
 
@@ -41,6 +42,7 @@ class AgentResult:
     num_turns: int
     is_error: bool
     total_cost_usd: float | None
+    session_id: str | None = None
 
 
 def build_agent_options(
@@ -50,8 +52,13 @@ def build_agent_options(
     max_turns: int = 40,
     effort: str = "high",
     extensions: dict[str, str] | None = None,
+    resume: str | None = None,
 ) -> ClaudeAgentOptions:
-    """Build the SDK options, wiring any extension MCP servers (HTTP+SSE) as tools."""
+    """Build the SDK options, wiring any extension MCP servers (HTTP+SSE) as tools.
+
+    ``resume`` (a prior session id) continues that conversation instead of starting
+    fresh — used by interactive chat sessions so follow-ups keep context.
+    """
     allowed = list(DEFAULT_TOOLS)
     mcp_servers: dict[str, dict] = {}
     for name, url in (extensions or {}).items():
@@ -67,6 +74,7 @@ def build_agent_options(
         max_turns=max_turns,
         effort=effort,
         mcp_servers=mcp_servers,
+        resume=resume,
     )
 
 
@@ -78,23 +86,27 @@ async def run_task(
     max_turns: int = 40,
     effort: str = "high",
     extensions: dict[str, str] | None = None,
+    resume: str | None = None,
     on_event: Callable[[dict], Awaitable[None]] | None = None,
 ) -> AgentResult:
     """Run the agent loop for one instruction in ``cwd``; return a result summary.
 
     Uses ``bypassPermissions`` so the unattended lab does not block on approval
     prompts; the tool set and ``cwd`` bound what the agent can touch. ``extensions``
-    (name -> SSE URL) are attached as MCP tool servers. If ``on_event`` is given,
-    each assistant text block is streamed to it as ``{"type": "agent_message", ...}``.
+    (name -> SSE URL) are attached as MCP tool servers. ``resume`` continues a prior
+    session. If ``on_event`` is given, assistant text streams as
+    ``{"type": "agent_message", ...}`` and tool calls as ``{"type": "tool_use", ...}``.
     """
     options = build_agent_options(
-        cwd=cwd, model=model, max_turns=max_turns, effort=effort, extensions=extensions
+        cwd=cwd, model=model, max_turns=max_turns, effort=effort,
+        extensions=extensions, resume=resume,
     )
 
     summary_parts: list[str] = []
     num_turns = 0
     is_error = False
     cost: float | None = None
+    session_id: str | None = None
 
     async for message in query(prompt=instruction, options=options):
         if isinstance(message, AssistantMessage):
@@ -103,10 +115,13 @@ async def run_task(
                     summary_parts.append(block.text)
                     if on_event is not None:
                         await on_event({"type": "agent_message", "text": block.text})
+                elif isinstance(block, ToolUseBlock) and on_event is not None:
+                    await on_event({"type": "tool_use", "name": block.name, "input": block.input})
         elif isinstance(message, ResultMessage):
             num_turns = message.num_turns
             is_error = message.is_error
             cost = message.total_cost_usd
+            session_id = message.session_id
             if message.result:
                 summary_parts = [message.result]
 
@@ -115,4 +130,5 @@ async def run_task(
         num_turns=num_turns,
         is_error=is_error,
         total_cost_usd=cost,
+        session_id=session_id,
     )

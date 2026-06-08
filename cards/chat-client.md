@@ -25,15 +25,26 @@ sequenceDiagram
     LAB-->>CC: stopped / idle
 ```
 
+## Modes
+
+- **`chat-client chat`** — interactive session: type messages, watch live
+  activity (agent text + tool calls), and follow-ups continue the **same branch**
+  with the **same agent context** (SDK session resume). One session per
+  connection (`chat/<ts>` branch).
+- **`chat-client submit "<instr>"`** — one fire-and-forget job on its own
+  `lab/<ts>` branch; streams until it finishes.
+- **`chat-client listen`** — passively stream all lab events.
+
 ## Key concerns
 
 - **Transport is WebSocket** — the lab (`dev-lab serve`) hosts a WebSocket
-  control surface; the client submits instructions and receives a live event
-  stream (a settled transport decision; see the index in CLAUDE.md).
-- **Streaming** — the value of the client is live visibility into a long-running
-  autonomous run, so partial/streamed output is a first-class requirement. The
-  lab publishes job lifecycle + agent-output events over the socket.
-- **Steering** — must be able to interrupt and redirect, not just fire-and-forget.
+  control surface (a settled transport decision; see the index in CLAUDE.md).
+- **Streaming** — live visibility into a long-running autonomous run is the whole
+  point: the lab publishes turn/job lifecycle, agent text (`agent_message`), and
+  tool calls (`tool_use`) over the socket.
+- **Sessions vs jobs** — interactive `message`s run on a persistent session
+  branch with resumed context; `submit` jobs are independent. Both serialize on a
+  single lab lock (one agent run at a time over the one working clone).
 - **Auth** — the client may live off the Pi's LAN; the connection needs
   authentication (open question in the plan).
 

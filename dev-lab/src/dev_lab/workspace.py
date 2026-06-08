@@ -50,6 +50,9 @@ class Workspace:
     def create_branch(self, name: str) -> None:
         self._git("checkout", "-b", name)
 
+    def checkout(self, name: str) -> None:
+        self._git("checkout", name)
+
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 
