@@ -148,6 +148,7 @@ input:focus, textarea:focus {
   text-overflow: ellipsis;
   max-width: 160px;
 }
+.branch-chip:empty { display: none; }
 
 /* ---------- CHAT ---------- */
 .chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -203,6 +204,9 @@ input:focus, textarea:focus {
 .msg-body ul, .msg-body ol { padding-left: 1.3em; }
 .msg-body blockquote { border-left: 2px solid var(--accent-dim); margin: .5em 0; padding-left: 12px; color: var(--muted); }
 .mermaid-fig { margin: 12px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow-x: auto; }
+.mermaid-fig svg { max-width: 100%; height: auto; }
+/* fallback if a diagram's <style> is ever absent — keep labels legible on dark */
+.mermaid-fig text { fill: var(--text); }
 
 .chat-input { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line); }
 .chat-input textarea { flex: 1; resize: none; max-height: 200px; }

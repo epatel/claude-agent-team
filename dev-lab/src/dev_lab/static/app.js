@@ -3,7 +3,13 @@
 const $ = (s) => document.querySelector(s);
 const state = { user: null, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "" };
 
-mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "dark", fontFamily: "IBM Plex Mono, monospace" });
+mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: "strict",
+  theme: "dark",
+  fontFamily: "IBM Plex Mono, monospace",
+  flowchart: { htmlLabels: false, curve: "basis" },  // SVG <text> labels — survive sanitize, colored via CSS
+});
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -170,7 +176,11 @@ async function renderMarkdown(el, text) {
       const { svg } = await mermaid.render("m" + Date.now() + i++, src);
       const fig = document.createElement("figure");
       fig.className = "mermaid-fig";
-      fig.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
+      // Inject mermaid's own SVG directly: securityLevel:"strict" already strips
+      // scripts/click-handlers/foreignObject, and a DOMPurify pass mangles the
+      // diagram (reorders nodes so labels vanish). The untrusted *markdown* HTML
+      // around it is still DOMPurify-sanitized above.
+      fig.innerHTML = svg;
       const pre = code.closest("pre");
       if (pre) pre.replaceWith(fig);
     } catch { /* leave the code block as-is on render failure */ }
