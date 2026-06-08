@@ -96,6 +96,55 @@ def test_merge_without_work_errors(tmp_path):
         asyncio.run(pm.merge_to_base(pid))
 
 
+def test_merge_base_into_branch_pulls_base_commits(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "feature.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, conn, labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+    asyncio.run(pm.run_turn(pid, "add feature"))  # commits feature.txt on chat/<ts>
+
+    clone = labs / "src"
+    base = pm.effective_base(db.get_project(conn, pid))
+    branch = pm.open(pid).branch
+    # land a commit on the base branch that the chat branch doesn't have yet
+    subprocess.run(["git", "-C", str(clone), "checkout", "-q", base], check=True)
+    (clone / "base_only.txt").write_text("b\n")
+    subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(clone), "commit", "-q", "-m", "base work"], check=True)
+    subprocess.run(["git", "-C", str(clone), "checkout", "-q", branch], check=True)
+
+    result = asyncio.run(pm.merge_base_into_branch(pid))
+
+    assert result["base"] == base
+    assert result["branch"] == branch
+    # the chat branch now carries the base-only commit
+    got = subprocess.run(
+        ["git", "-C", str(clone), "cat-file", "-e", f"{branch}:base_only.txt"]
+    ).returncode
+    assert got == 0
+    # and the working tree is left back on the chat branch for the next turn
+    head = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert head == branch
+
+
+def test_merge_base_without_work_errors(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, _labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    with pytest.raises(ProjectError, match="no work branch yet"):
+        asyncio.run(pm.merge_base_into_branch(pid))
+
+
 def test_set_base_branch_validates_and_persists(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

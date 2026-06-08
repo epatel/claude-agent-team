@@ -165,6 +165,7 @@ async function openProject(id) {
   $("#browse-btn").hidden = false;
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
+  $("#merge-base-btn").hidden = false;
   $("#merge-btn").hidden = false;
   $("#head-tabs").hidden = false;
   setTab("chat");
@@ -281,6 +282,18 @@ $("#push-btn").addEventListener("click", () => {
       systemLine(`✓ pushed ${r.base} @ ${r.commit.slice(0, 10)}`);
     } catch (err) {
       systemLine(`✗ push failed: ${err.message}`, true);
+    }
+  });
+});
+
+$("#merge-base-btn").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  withButton($("#merge-base-btn"), "merging", async () => {
+    try {
+      const r = await api(`/api/projects/${state.activeId}/merge-base`, { method: "POST" });
+      systemLine(`✓ merged ${r.base} into ${r.branch} @ ${r.commit.slice(0, 10)}`);
+    } catch (err) {
+      systemLine(`✗ merge base failed: ${err.message}`, true);
     }
   });
 });
