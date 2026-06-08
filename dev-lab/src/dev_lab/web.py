@@ -299,6 +299,14 @@ def build_app(
             {"role": m["role"], "content": m["content"]} for m in db.list_messages(conn, project_id)
         ]
 
+    @app.post("/api/projects/{project_id}/clear")
+    async def clear_chat(project_id: int, request: Request) -> dict:
+        current_user(request)
+        try:
+            return await pm.clear_chat(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.get("/api/projects/{project_id}/commits/{sha}/diff")
     async def commit_diff(project_id: int, sha: str, request: Request) -> dict:
         current_user(request)

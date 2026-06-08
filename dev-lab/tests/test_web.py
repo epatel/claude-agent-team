@@ -229,6 +229,30 @@ def test_messages_endpoint(tmp_path):
     assert [m["role"] for m in msgs] == ["user", "assistant"]
 
 
+def test_clear_chat_endpoint(tmp_path):
+    client, conn = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = db.create_project(conn, name="p", path="/x")
+    db.record_message(conn, project_id=pid, role="user", content="hi")
+    db.record_message(conn, project_id=pid, role="assistant", content="yo")
+    db.update_project(conn, pid, last_session_id="sess-123")
+
+    r = client.post(f"/api/projects/{pid}/clear")
+    assert r.status_code == 200 and r.json()["cleared"] is True
+
+    # conversation is wiped and the resumed session is forgotten
+    assert client.get(f"/api/projects/{pid}/messages").json() == []
+    assert db.get_project(conn, pid)["last_session_id"] is None
+
+    # unknown project is a clean 4xx, not a 500
+    assert client.post("/api/projects/9999/clear").status_code == 400
+
+
+def test_clear_chat_requires_auth(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.post("/api/projects/1/clear").status_code == 401
+
+
 def test_commit_diff_endpoint(tmp_path):
     _src_repo(tmp_path / "myrepo")
     client, _ = _client(tmp_path)

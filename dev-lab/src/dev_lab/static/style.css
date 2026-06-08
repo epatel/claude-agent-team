@@ -231,6 +231,9 @@ input:focus, textarea:focus {
   animation: spin .65s linear infinite;
 }
 .merge-btn { font-size: 11px; padding: 6px 12px; }
+.head-right { display: flex; align-items: center; gap: 12px; }
+.clear-chat-btn { font-size: 11px; padding: 6px 12px; }
+.clear-chat-btn[hidden] { display: none; }
 .sys { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; padding: 4px 0; }
 .sys.bad { color: var(--bad); }
 .active-name { font-family: var(--mono); font-weight: 600; letter-spacing: .03em; }

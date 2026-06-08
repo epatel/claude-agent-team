@@ -306,6 +306,24 @@ class ProjectManager:
             ws.ensure_repo()
             return ws.read_file(path)
 
+    async def clear_chat(self, project_id: int) -> dict:
+        """Erase a project's chat history and reset its agent context.
+
+        The web equivalent of ``/clear``: wipes the persisted conversation,
+        forgets the resumed SDK session, and drops the cached ``LabSession`` so
+        the next turn starts from a clean context. The branch and working tree
+        are left untouched — only the conversation is reset.
+        """
+        if db.get_project(self.conn, project_id) is None:
+            raise ProjectError(f"no such project: {project_id}")
+        async with self.lock(project_id):
+            db.clear_messages(self.conn, project_id)
+            db.clear_session(self.conn, project_id)
+            # Drop the cached session so open() rebuilds it from the now-reset
+            # row (no last_session_id) instead of resuming the old context.
+            self._sessions.pop(project_id, None)
+        return {"cleared": True}
+
     async def run_turn(self, project_id: int, message: str, *, on_event=None) -> TurnResult:
         """Run one chat turn for a project: persist message, run, persist state."""
         session = self.open(project_id)

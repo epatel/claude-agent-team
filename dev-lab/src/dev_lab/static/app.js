@@ -162,6 +162,7 @@ async function openProject(id) {
   $("#active-name").textContent = p.name;
   $("#active-branch").textContent = p.branch || "";
   $("#chat-form").hidden = false;
+  $("#clear-chat-btn").hidden = false;
   $("#browse-btn").hidden = false;
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
@@ -306,6 +307,22 @@ $("#merge-btn").addEventListener("click", () => {
       systemLine(`✓ merged ${r.branch} into ${r.base} @ ${r.commit.slice(0, 10)}`);
     } catch (err) {
       systemLine(`✗ merge failed: ${err.message}`, true);
+    }
+  });
+});
+
+// Clear chat: the web equivalent of /clear — wipes this project's conversation
+// and resets the agent's context (same branch). Destructive, so confirm first.
+$("#clear-chat-btn").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  if (!confirm("Clear this chat? This erases the conversation and starts a fresh agent context. Your code and branch are not affected.")) return;
+  withButton($("#clear-chat-btn"), "clearing", async () => {
+    try {
+      await api(`/api/projects/${state.activeId}/clear`, { method: "POST" });
+      $("#transcript").innerHTML = "";
+      systemLine("✓ chat cleared — fresh agent context, same branch");
+    } catch (err) {
+      systemLine(`✗ clear failed: ${err.message}`, true);
     }
   });
 });

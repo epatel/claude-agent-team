@@ -64,7 +64,11 @@
           <button id="tab-repo" class="tab" type="button" role="tab"
             data-tab="repo" aria-controls="panel-repo" aria-selected="false">repo</button>
         </nav>
-        <span id="active-status" class="status"></span>
+        <div class="head-right">
+          <button id="clear-chat-btn" class="clear-chat-btn ghost" type="button" hidden
+            title="Clear this chat's history and start a fresh agent context. Your code and branch are not affected.">clear chat</button>
+          <span id="active-status" class="status"></span>
+        </div>
       </header>
 
       <section id="panel-chat" class="tab-panel chat-panel" role="tabpanel" aria-labelledby="tab-chat">
