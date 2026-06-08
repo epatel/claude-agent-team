@@ -28,8 +28,11 @@ flowchart LR
   history; isolate work so it's reviewable and reversible.
 - **Pass the commit SHA, not "latest"** — when the lab asks an extension to
   build/test, it should reference the precise ref it pushed to avoid races.
-- **Credentials** — the Pi needs a GitHub token to push; extensions need read
-  access to fetch. Secret handling is a deployment concern.
+- **Credentials** — GitHub auth is **per project**: each project carries its own
+  token (entered in the web console, stored on its `projects` row and injected
+  into that clone's `origin`), used to clone and push private repos; public repos
+  need none. There is no global `GITHUB_TOKEN`. Extensions need read access to
+  fetch. Secret handling is a deployment concern.
 - **Caching** — extensions can keep a warm clone and fetch incrementally rather
   than re-cloning each run.
 

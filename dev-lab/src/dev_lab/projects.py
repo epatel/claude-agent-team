@@ -34,6 +34,30 @@ def _derive_name(remote_url: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "-", tail).strip("-._") or "project"
 
 
+def _strip_credentials(url: str) -> str:
+    """Drop any embedded ``user:pass@`` from an https URL.
+
+    We never store or display a token-bearing URL; the token lives only on the
+    project row, and is re-applied to the clone's ``origin`` on demand.
+    """
+    return re.sub(r"^(https://)[^/@]+@", r"\1", url)
+
+
+def _authed_url(url: str, token: str | None) -> str:
+    """Embed ``token`` as the basic-auth user in an https git URL.
+
+    Returns the URL unchanged when there is no token, or for non-https (e.g.
+    ``git@…`` ssh) remotes where a token does not apply. Any pre-existing
+    credentials are stripped first so a token is never double-embedded.
+    """
+    if not token:
+        return url
+    clean = _strip_credentials(url)
+    if clean.startswith("https://"):
+        return clean.replace("https://", f"https://x-access-token:{token}@", 1)
+    return clean
+
+
 class ProjectManager:
     def __init__(
         self,
@@ -54,12 +78,6 @@ class ProjectManager:
     @staticmethod
     def _is_git_repo(path: Path) -> bool:
         return (path / ".git").exists()
-
-    def _authed_url(self, url: str) -> str:
-        token = self.config.github_token
-        if token and url.startswith("https://github.com/"):
-            return url.replace("https://", f"https://x-access-token:{token}@", 1)
-        return url
 
     def discover(self) -> list[sqlite3.Row]:
         """Register any git checkout sitting in labs/ that isn't recorded yet."""
@@ -84,20 +102,24 @@ class ProjectManager:
             n += 1
         return f"{base}_{n}"
 
-    def create(self, remote_url: str) -> sqlite3.Row:
+    def create(self, remote_url: str, github_token: str | None = None) -> sqlite3.Row:
         """Clone ``remote_url`` into labs/<repo-name> and register it.
 
-        The name is derived from the repo (``…/foo.git`` -> ``foo``); a collision
-        gets a ``_2`` / ``_3`` / … suffix.
+        ``github_token`` is this project's own GitHub credential (there is no
+        global token): it authenticates the clone and is persisted on the
+        project's ``origin`` and row so later push/pull/fetch reuse it. Omit it
+        for a public repo. The name is derived from the repo (``…/foo.git`` ->
+        ``foo``); a collision gets a ``_2`` / ``_3`` / … suffix.
         """
-        remote_url = remote_url.strip()
+        remote_url = _strip_credentials(remote_url.strip())
         if not remote_url:
             raise ProjectError("a git URL is required")
+        token = (github_token or "").strip() or None
         name = self._unique_name(_derive_name(remote_url))
         dest = self.labs_dir / name
 
         clone = subprocess.run(
-            ["git", "clone", "--quiet", self._authed_url(remote_url), str(dest)],
+            ["git", "clone", "--quiet", _authed_url(remote_url, token), str(dest)],
             capture_output=True,
             text=True,
         )
@@ -110,8 +132,34 @@ class ProjectManager:
             ["git", "-C", str(dest), "config", "user.email", "lab@local"], check=False
         )
 
-        pid = db.create_project(self.conn, name=name, path=str(dest), remote_url=remote_url)
+        pid = db.create_project(
+            self.conn, name=name, path=str(dest), remote_url=remote_url, github_token=token
+        )
         return db.get_project(self.conn, pid)
+
+    async def set_token(self, project_id: int, token: str | None) -> dict:
+        """Set (or clear, with empty ``token``) a project's GitHub credential.
+
+        Persists the token on the project row and re-points the clone's
+        ``origin`` at the (clean) remote with the new token embedded, so the
+        agent's pushes and the manager's push/pull/fetch pick it up immediately.
+        Updating the row still succeeds if the clone is missing or broken.
+        """
+        row = db.get_project(self.conn, project_id)
+        if row is None:
+            raise ProjectError(f"no such project: {project_id}")
+        token = (token or "").strip() or None
+        async with self.lock(project_id):
+            db.set_project_token(self.conn, project_id, token)
+            ws = Workspace(Path(row["path"]))
+            try:
+                ws.ensure_repo()
+                base = row["remote_url"] or _strip_credentials(ws.remote_url() or "")
+                if base:
+                    ws.set_remote_url(_authed_url(base, token))
+            except WorkspaceError:
+                pass  # no/broken clone — the row is updated; origin is fixed on next clone
+        return {"has_token": token is not None}
 
     def lock(self, project_id: int) -> asyncio.Lock:
         return self._locks.setdefault(project_id, asyncio.Lock())

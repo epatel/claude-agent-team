@@ -96,6 +96,15 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
+    (
+        6,
+        # Per-project GitHub auth: each project carries its own token (replacing
+        # the old global GITHUB_TOKEN env var). NULL means "no token" — fine for
+        # public repos.
+        """
+        ALTER TABLE projects ADD COLUMN github_token TEXT;
+        """,
+    ),
 ]
 
 
@@ -167,14 +176,34 @@ def record_run(
 # --- Projects -------------------------------------------------------------
 
 def create_project(
-    conn: sqlite3.Connection, *, name: str, path: str, remote_url: str | None = None
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    path: str,
+    remote_url: str | None = None,
+    github_token: str | None = None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO projects (name, path, remote_url, created_at) VALUES (?, ?, ?, ?)",
-        (name, path, remote_url, time.time()),
+        "INSERT INTO projects (name, path, remote_url, github_token, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (name, path, remote_url, github_token, time.time()),
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def set_project_token(conn: sqlite3.Connection, project_id: int, token: str | None) -> None:
+    """Set (or clear, with ``None``) a project's GitHub token.
+
+    Has its own statement rather than going through ``update_project`` because
+    that helper skips ``None`` values (it can't tell "leave alone" from "clear"),
+    and clearing a token to NULL is a first-class operation here.
+    """
+    conn.execute(
+        "UPDATE projects SET github_token = ? WHERE id = ?",
+        (token or None, project_id),
+    )
+    conn.commit()
 
 
 def get_project(conn: sqlite3.Connection, project_id: int) -> sqlite3.Row | None:

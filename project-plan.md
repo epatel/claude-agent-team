@@ -72,7 +72,8 @@ lint is ruff, tests are pytest.
 loop — `bypassPermissions`, workspace-scoped tools), `lab.py` (`run_once`:
 clean-tree check → work branch → agent edits → one commit), and a real CLI
 (`dev-lab "<instruction>" --repo <path>`). Auth is the `claude` login; config
-supplies `GITHUB_TOKEN` and guards against API-key billing.
+guards against API-key billing. GitHub auth is per project (each project's token
+lives on its `projects` row, entered in the web console), not a global env var.
 
 Verified: `make test`/`lint` pass (11 tests). The git orchestration and the
 "one instruction → one commit" / "no changes → no commit" / "refuse dirty tree"

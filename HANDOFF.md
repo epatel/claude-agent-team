@@ -50,7 +50,7 @@ SQLite. See `cards/dev-lab.md`.
 ```
 dev-lab/                  # the autonomous lab (runs on the Pi) — Python, its own venv
   src/dev_lab/
-    config.py       # load_config(): GITHUB_TOKEN + EXTENSIONS; refuses to start if ANTHROPIC_API_KEY set
+    config.py       # load_config(): MODEL + EXTENSIONS; refuses to start if ANTHROPIC_API_KEY set (GitHub auth is per project, on the project row)
     workspace.py    # git wrapper: branch/inspect/commit/checkout, merge(base,branch) — NOTE: no push yet (see gaps)
     agent.py        # Claude Agent SDK loop; build_agent_options() wires extension MCP servers
     lab.py          # run_once(): clean-tree -> branch -> agent edits -> one commit
@@ -87,8 +87,9 @@ make lint            # ruff
 Primary surface — web console:
 
 ```sh
-GITHUB_TOKEN=<t> dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
-# open http://127.0.0.1:8770 → register → new/select project → chat
+dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
+# open http://127.0.0.1:8770 → register → new/select project (paste a GitHub
+# token for private repos) → chat
 ```
 
 Older CLI surface (each from its component's `.venv/bin/`):
@@ -101,9 +102,10 @@ chat-client {chat|submit|listen} [--url ws://host:8765]
 macos-build-test serve [--host H --port 8970]     # serves /sse
 ```
 
-Auth/config env: `GITHUB_TOKEN` (required), `MODEL` (default `claude-opus-4-8`),
-`EXTENSIONS=name=url,...`. Claude auth is the **`claude` login** (subscription),
-not an env var.
+Auth/config env: `MODEL` (default `claude-opus-4-8`), `EXTENSIONS=name=url,...`.
+GitHub auth is **per project** — each project carries its own token (entered in
+the web console, stored on its `projects` row), so there is no `GITHUB_TOKEN`
+env var. Claude auth is the **`claude` login** (subscription), not an env var.
 
 ## Verified vs not
 
@@ -130,8 +132,8 @@ not an env var.
 - **No remote push (local merge only).** The web console can now **merge a chat
   branch into the project's base branch locally** (`workspace.merge` →
   `ProjectManager.merge_to_base` → `POST /api/projects/{id}/merge`, "merge → base"
-  button). But nothing is **pushed** to GitHub yet — `GITHUB_TOKEN` is used to
-  *clone* private repos, not to push. To complete repo-sync (push → extension
+  button). But nothing is **pushed** to GitHub yet — a project's per-project
+  token is used to *clone* (and could push) private repos. To complete repo-sync (push → extension
   clones the pushed commit), add a `workspace.push` and a push step after merge.
 - **M2 not validated on a Pi.** Follow `deploy/README.md` on real hardware
   (install Claude Code CLI, `claude` login as the service user, systemd enable).

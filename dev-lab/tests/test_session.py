@@ -24,7 +24,7 @@ def test_first_turn_creates_branch_and_commits(tmp_path):
         (Path(cwd) / "a.txt").write_text("one\n")
         return AgentResult("did one", 1, False, 0.0, session_id="sess-1")
 
-    session = LabSession(repo_path=tmp_path, config=Config(github_token="x"), run_task=fake)
+    session = LabSession(repo_path=tmp_path, config=Config(), run_task=fake)
     turn = asyncio.run(session.run_turn("add a.txt"))
 
     assert turn.committed
@@ -42,7 +42,7 @@ def test_followup_reuses_branch_and_resumes(tmp_path):
         (Path(cwd) / f"{message}.txt").write_text("x\n")
         return AgentResult("ok", 1, False, 0.0, session_id="sess-1")
 
-    session = LabSession(repo_path=tmp_path, config=Config(github_token="x"), run_task=fake)
+    session = LabSession(repo_path=tmp_path, config=Config(), run_task=fake)
     first = asyncio.run(session.run_turn("one"))
     second = asyncio.run(session.run_turn("two"))
 
@@ -68,7 +68,7 @@ def test_first_turn_branches_off_configured_base(tmp_path):
         return AgentResult("did one", 1, False, 0.0, session_id="sess-1")
 
     session = LabSession(
-        repo_path=tmp_path, config=Config(github_token="x"), base_branch="release", run_task=fake
+        repo_path=tmp_path, config=Config(), base_branch="release", run_task=fake
     )
     asyncio.run(session.run_turn("add a.txt"))
 
@@ -82,7 +82,7 @@ def test_no_changes_no_commit(tmp_path):
     async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
         return AgentResult("nothing to do", 1, False, 0.0, session_id="sess-1")
 
-    session = LabSession(repo_path=tmp_path, config=Config(github_token="x"), run_task=fake)
+    session = LabSession(repo_path=tmp_path, config=Config(), run_task=fake)
     turn = asyncio.run(session.run_turn("noop"))
 
     assert not turn.committed
@@ -96,6 +96,6 @@ def test_dirty_tree_rejected(tmp_path):
     async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
         return AgentResult("ok", 1, False, 0.0)
 
-    session = LabSession(repo_path=tmp_path, config=Config(github_token="x"), run_task=fake)
+    session = LabSession(repo_path=tmp_path, config=Config(), run_task=fake)
     with pytest.raises(RuntimeError, match="uncommitted changes"):
         asyncio.run(session.run_turn("x"))

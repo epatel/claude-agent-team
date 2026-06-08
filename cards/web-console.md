@@ -52,8 +52,10 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   drives all of this. Migration #5 adds `users.is_super`/`users.blocked` + the
   `invites` table and retroactively promotes the earliest existing user to super.
 - **Projects** — auto-discovered from existing checkouts in `labs/`, or created by
-  cloning a git URL (`GITHUB_TOKEN`-injected for private). Names are single dir
-  segments.
+  cloning a git URL. GitHub auth is **per project**: a token entered on create
+  (or later via the project's token control) is stored on the project row and
+  injected into its `origin` for private clone/push/pull; public repos need none.
+  Names are single dir segments.
 - **Inspecting work.** Each committed turn shows a **view-diff** button (the
   commit chip) that opens `GET /api/projects/{id}/commits/{sha}/diff` in a modal
   (`diff.js` renders the unified patch as collapsible per-file blocks). A

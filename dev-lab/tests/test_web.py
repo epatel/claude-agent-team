@@ -11,7 +11,7 @@ from starlette.websockets import WebSocketDisconnect
 def _app(tmp_path):
     conn = db.connect(tmp_path / "lab.db")
     app = build_app(
-        labs_dir=tmp_path / "labs", config=Config(github_token="x"), conn=conn, secret="test-secret"
+        labs_dir=tmp_path / "labs", config=Config(), conn=conn, secret="test-secret"
     )
     return app, conn
 
@@ -185,6 +185,49 @@ def test_create_and_list_projects(tmp_path):
     assert client.post("/api/projects", json={"remote_url": src}).json()["name"] == "myrepo_2"
     # empty url is rejected
     assert client.post("/api/projects", json={"remote_url": ""}).status_code == 400
+
+
+def test_project_token_endpoint(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    src = str(tmp_path / "myrepo")
+
+    # create with a token → has_token is exposed, the token itself never is
+    proj = client.post("/api/projects", json={"remote_url": src, "github_token": "tok"}).json()
+    pid = proj["id"]
+    assert proj["has_token"] is True
+    assert "github_token" not in proj
+    listed = [p for p in client.get("/api/projects").json() if p["id"] == pid][0]
+    assert listed["has_token"] is True
+
+    # clearing the token flips has_token off
+    r = client.post(f"/api/projects/{pid}/token", json={"github_token": ""})
+    assert r.status_code == 200 and r.json()["has_token"] is False
+    listed = [p for p in client.get("/api/projects").json() if p["id"] == pid][0]
+    assert listed["has_token"] is False
+
+    # setting it again flips it back on
+    r = client.post(f"/api/projects/{pid}/token", json={"github_token": "tok2"})
+    assert r.status_code == 200 and r.json()["has_token"] is True
+
+    # unknown project is a clean 4xx; the route requires auth
+    assert client.post("/api/projects/9999/token", json={"github_token": "x"}).status_code == 400
+
+
+def test_token_endpoint_requires_auth(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.post("/api/projects/1/token", json={"github_token": "x"}).status_code == 401
+
+
+def test_create_project_without_token(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+
+    # a public repo clones with no token; has_token is False
+    proj = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()
+    assert proj["has_token"] is False
 
 
 def test_branches_and_set_base(tmp_path):

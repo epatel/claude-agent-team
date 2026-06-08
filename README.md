@@ -43,7 +43,7 @@ fill in the gitignored `.env` with just the GitHub token:
 
 ```sh
 claude                               # complete login (SSH: press `c` to copy the URL, paste the code back)
-cp dev-lab/.env.example dev-lab/.env # then set GITHUB_TOKEN
+cp dev-lab/.env.example dev-lab/.env # GitHub auth is per project (web console)
 ```
 
 The login credentials live in `~/.claude` and auto-refresh. Do not set

@@ -30,6 +30,8 @@ def _project_dict(pm: ProjectManager, row: sqlite3.Row) -> dict:
         "name": row["name"],
         "branch": row["branch"],
         "base_branch": pm.effective_base(row),
+        # Whether a GitHub token is configured — never the token itself.
+        "has_token": bool(row["github_token"]),
     }
 
 
@@ -226,12 +228,25 @@ def build_app(
         current_user(request)
         data = await request.json()
         remote_url = (data.get("remote_url") or "").strip()
+        github_token = (data.get("github_token") or "").strip()
         try:
-            row = pm.create(remote_url)
+            row = pm.create(remote_url, github_token=github_token)
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
         return _project_dict(pm, row)
+
+    @app.post("/api/projects/{project_id}/token")
+    async def set_token(project_id: int, request: Request) -> dict:
+        current_user(request)
+        data = await request.json()
+        token = (data.get("github_token") or "").strip()
+        try:
+            result = await pm.set_token(project_id, token)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
 
     @app.post("/api/projects/{project_id}/merge")
     async def merge_project(project_id: int, request: Request) -> dict:

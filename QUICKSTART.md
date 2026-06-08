@@ -37,14 +37,16 @@ bare `dev-lab` command.
 A multi-project browser app: log in, pick a project, chat with its agent.
 
 ```sh
-env -u ANTHROPIC_API_KEY GITHUB_TOKEN=<token> \
+env -u ANTHROPIC_API_KEY \
   dev-lab/.venv/bin/dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
 ```
 
 Open `http://127.0.0.1:8770`, **register** an account, then:
 - **New project** → paste a git URL; it clones into `labs/<repo-name>` (the name
   is derived from the URL; a second clone of the same repo gets a `_2` suffix).
-  Or drop an existing checkout into `labs/` and it auto-appears.
+  For a **private** repo, paste a GitHub token in the same form (or set it later
+  via the project's token control); public repos need none. Or drop an existing
+  checkout into `labs/` and it auto-appears.
 - Pick a project on the left, chat on the right. Follow-ups continue the same
   branch with the same agent context; assistant replies render as markdown +
   mermaid; tool calls show as live activity.
@@ -76,7 +78,7 @@ REPO=$(mktemp -d); git -C "$REPO" init -q
 git -C "$REPO" config user.email lab@example.com; git -C "$REPO" config user.name "Dev Lab"
 echo "# demo" > "$REPO/README.md"; git -C "$REPO" add -A; git -C "$REPO" commit -q -m init
 
-env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN GITHUB_TOKEN=dummy \
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
   dev-lab/.venv/bin/dev-lab run "Create hello.txt with a greeting." --repo "$REPO"
 
 git -C "$REPO" log --oneline       # see the lab's commit on a lab/… branch
@@ -98,7 +100,7 @@ git -C "$REPO" config user.email lab@example.com; git -C "$REPO" config user.nam
 printf 'test:\n\t@echo "tests passed"\n' > "$REPO/Makefile"
 git -C "$REPO" add -A; git -C "$REPO" commit -q -m init
 
-env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN GITHUB_TOKEN=dummy \
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
   EXTENSIONS="macos=http://127.0.0.1:8970/sse" \
   dev-lab/.venv/bin/dev-lab serve --repo "$REPO" --host 127.0.0.1 --port 8765 --poll 1
 ```
@@ -149,7 +151,7 @@ claude                                   # log in as this user
 git clone <this repo> ~/claude-agent-team
 cd ~/claude-agent-team/dev-lab
 python3 -m venv .venv && .venv/bin/python -m pip install -e .
-cp .env.example .env                     # set GITHUB_TOKEN (and EXTENSIONS, see B3)
+cp .env.example .env                     # optional overrides (EXTENSIONS, see B3); GitHub auth is per project
 
 # the work repo the lab operates on
 git clone <target repo> ~/work/target-repo
@@ -168,8 +170,9 @@ sudo systemctl enable --now dev-lab
 journalctl -u dev-lab -f
 ```
 
-`EnvironmentFile=.env` supplies `GITHUB_TOKEN` (and `EXTENSIONS`); Claude auth is
-the `claude` login. **Never** put `ANTHROPIC_API_KEY` in that file.
+`EnvironmentFile=.env` supplies optional overrides (`EXTENSIONS`, `MODEL`); GitHub
+auth is per project (entered in the web console) and Claude auth is the `claude`
+login. **Never** put `ANTHROPIC_API_KEY` in that file.
 
 ### B2. The extension on the macOS host
 
@@ -190,7 +193,6 @@ Run it under launchd / a process supervisor for always-on. The endpoint is
 In `~/claude-agent-team/dev-lab/.env` on the Pi:
 
 ```
-GITHUB_TOKEN=ghp_...
 EXTENSIONS=macos=http://<mac-host>:8970/sse
 ```
 

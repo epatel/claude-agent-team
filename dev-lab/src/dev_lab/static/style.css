@@ -201,6 +201,17 @@ input:focus, textarea:focus {
 }
 .repo-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .repo-actions-break { flex-basis: 100%; height: 0; }
+.token-form[hidden] { display: none; }
+.token-form {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  border-top: 1px solid var(--line); padding-top: 14px;
+}
+.token-form .token-status {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .03em;
+  opacity: .8;
+}
+.token-form input { flex: 1 1 160px; min-width: 120px; }
+.token-form .error { flex-basis: 100%; }
 .base-picker[hidden] { display: none; }
 .base-picker {
   display: flex; align-items: center; gap: 6px;

@@ -42,6 +42,8 @@
       <button id="new-project-btn" class="new-project">+ new project</button>
       <form id="new-project-form" class="new-project-form" hidden>
         <input id="np-url" placeholder="git url (https://…)" required />
+        <input id="np-token" type="password" autocomplete="off"
+          placeholder="github token (private repos)" />
         <div class="np-actions">
           <button type="submit" id="np-submit">clone</button>
           <button type="button" id="np-cancel" class="ghost">cancel</button>
@@ -98,6 +100,15 @@
             <button id="merge-base-btn" class="merge-btn ghost" hidden>merge base → branch</button>
             <button id="merge-btn" class="merge-btn ghost" hidden>merge branch → base</button>
           </div>
+          <form id="token-form" class="token-form" hidden
+            title="This project's GitHub token, used to clone, pull and push. Stored per project.">
+            <span id="token-status" class="token-status"></span>
+            <input id="token-input" type="password" autocomplete="off"
+              placeholder="github token" aria-label="github token" />
+            <button id="token-save" type="submit" class="merge-btn ghost">save</button>
+            <button id="token-clear" type="button" class="merge-btn ghost">clear</button>
+            <span id="token-error" class="error"></span>
+          </form>
         </div>
       </section>
     </main>

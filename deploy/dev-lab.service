@@ -18,9 +18,10 @@ Type=simple
 # that user's ~/.claude (see cards/subscription-auth.md).
 User=pi
 WorkingDirectory=/home/pi/claude-agent-team
-# Only GITHUB_TOKEN lives here (chmod 600). Claude auth is the `claude` login.
-# Do NOT put ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN here — they override
-# subscription auth and bill the API.
+# Optional overrides only (MODEL, EXTENSIONS); chmod 600. GitHub auth is per
+# project (stored in the runtime DB, entered in the web console); Claude auth is
+# the `claude` login. Do NOT put ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN here —
+# they override subscription auth and bill the API.
 EnvironmentFile=/home/pi/claude-agent-team/dev-lab/.env
 ExecStart=/home/pi/claude-agent-team/dev-lab/.venv/bin/dev-lab serve \
   --repo /home/pi/work/target-repo \
