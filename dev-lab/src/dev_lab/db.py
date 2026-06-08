@@ -76,6 +76,26 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE projects ADD COLUMN base_branch TEXT;
         """,
     ),
+    (
+        5,
+        # Roles + access control for users, plus an invite-code table.
+        # The FIRST registered user becomes the super-user; everyone else needs
+        # an invite the super-user mints. Super-users manage the user db.
+        """
+        ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE users ADD COLUMN blocked  INTEGER NOT NULL DEFAULT 0;
+        -- Retroactively make the earliest-registered existing user the super-user,
+        -- so a deployment that already had accounts isn't locked out of admin.
+        UPDATE users SET is_super = 1 WHERE id = (SELECT MIN(id) FROM users);
+        CREATE TABLE invites (
+            code        TEXT PRIMARY KEY,
+            created_by  INTEGER NOT NULL REFERENCES users(id),
+            created_at  REAL NOT NULL,
+            used_by     INTEGER REFERENCES users(id),
+            used_at     REAL
+        );
+        """,
+    ),
 ]
 
 

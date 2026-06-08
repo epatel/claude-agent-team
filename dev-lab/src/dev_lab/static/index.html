@@ -21,6 +21,8 @@
         <input id="username" name="username" autocomplete="username" placeholder="username" required />
         <input id="password" name="password" type="password" autocomplete="current-password"
           placeholder="password" required />
+        <input id="invite" name="invite" autocomplete="off"
+          placeholder="invite code (first user: leave blank)" hidden />
         <div id="auth-error" class="error"></div>
         <div class="auth-actions">
           <button type="submit">log in</button>
@@ -36,6 +38,7 @@
       <div class="sidebar-head">
         <span class="brand-sm">◢◤ LAB</span>
         <span id="who" class="who"></span>
+        <button id="admin-btn" class="admin-btn ghost" hidden title="manage users">⚙ admin</button>
       </div>
       <button id="new-project-btn" class="new-project">+ new project</button>
       <form id="new-project-form" class="new-project-form" hidden>
@@ -77,6 +80,35 @@
         <button type="submit" aria-label="send">↦</button>
       </form>
     </main>
+  </div>
+
+  <!-- ADMIN (super-user only) -->
+  <div id="admin-overlay" class="overlay" hidden>
+    <div class="admin-panel">
+      <header class="admin-head">
+        <span class="admin-title">⚙ user administration</span>
+        <button id="admin-close" class="ghost" aria-label="close">✕</button>
+      </header>
+
+      <section class="admin-section">
+        <div class="admin-section-head">
+          <h3>invite codes</h3>
+          <button id="new-invite-btn">+ new invite</button>
+        </div>
+        <ul id="invite-list" class="invite-list"></ul>
+      </section>
+
+      <section class="admin-section">
+        <h3>users</h3>
+        <table class="user-table">
+          <thead>
+            <tr><th>user</th><th>role</th><th>status</th><th class="actions-col">actions</th></tr>
+          </thead>
+          <tbody id="user-rows"></tbody>
+        </table>
+      </section>
+      <div id="admin-error" class="error"></div>
+    </div>
   </div>
 
   <script src="/vendor/marked.min.js"></script>

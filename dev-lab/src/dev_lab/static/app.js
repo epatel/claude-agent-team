@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "" };
+const state = { user: null, isSuper: false, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "" };
 
 mermaid.initialize({
   startOnLoad: false,
@@ -46,7 +46,9 @@ async function withButton(btn, busyLabel, fn) {
 /* ---------- auth ---------- */
 async function checkAuth() {
   try {
-    state.user = (await api("/api/me")).username;
+    const me = await api("/api/me");
+    state.user = me.username;
+    state.isSuper = !!me.is_super;
     await showApp();
   } catch {
     $("#login").hidden = false;
@@ -58,15 +60,27 @@ async function checkAuth() {
 async function doAuth(path) {
   const username = $("#username").value.trim();
   const password = $("#password").value;
+  const invite = $("#invite").value.trim();
   try {
-    await api(path, { method: "POST", body: JSON.stringify({ username, password }) });
+    await api(path, { method: "POST", body: JSON.stringify({ username, password, invite }) });
     location.reload();
   } catch (err) {
     $("#auth-error").textContent = err.message;
   }
 }
 $("#auth-form").addEventListener("submit", (e) => { e.preventDefault(); doAuth("/api/login"); });
-$("#register-btn").addEventListener("click", () => doAuth("/api/register"));
+// First click reveals the invite field (so a returning user can paste a code, or
+// the very first user can leave it blank); a second click submits the registration.
+$("#register-btn").addEventListener("click", () => {
+  const inv = $("#invite");
+  if (inv.hidden) {
+    inv.hidden = false;
+    inv.focus();
+    $("#auth-error").textContent = "";
+    return;
+  }
+  doAuth("/api/register");
+});
 $("#logout-btn").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
   if (state.ws) state.ws.close();
@@ -77,7 +91,8 @@ $("#logout-btn").addEventListener("click", async () => {
 async function showApp() {
   $("#login").hidden = true;
   $("#app").hidden = false;
-  $("#who").textContent = state.user;
+  $("#who").textContent = state.user + (state.isSuper ? " ★" : "");
+  $("#admin-btn").hidden = !state.isSuper;
   await loadProjects();
   connectWs();
 }
@@ -404,5 +419,102 @@ function handleEvent(e) {
     }
   }
 }
+
+/* ---------- admin (super-user) ---------- */
+const adminOverlay = $("#admin-overlay");
+
+function adminError(msg) { $("#admin-error").textContent = msg || ""; }
+
+async function openAdmin() {
+  adminError("");
+  adminOverlay.hidden = false;
+  await Promise.all([loadInvites(), loadUsers()]);
+}
+function closeAdmin() { adminOverlay.hidden = true; }
+
+async function loadInvites() {
+  const list = $("#invite-list");
+  try {
+    const invites = await api("/api/admin/invites");
+    list.innerHTML = "";
+    if (!invites.length) {
+      list.innerHTML = `<li class="invite empty-row">no invites yet — mint one to onboard a user</li>`;
+      return;
+    }
+    for (const inv of invites) {
+      const li = document.createElement("li");
+      li.className = "invite" + (inv.used_by ? " used" : "");
+      li.innerHTML =
+        `<code class="invite-code">${escapeHtml(inv.code)}</code>` +
+        `<span class="invite-state">${inv.used_by ? "used" : "unused"}</span>`;
+      list.appendChild(li);
+    }
+  } catch (err) { adminError(err.message); }
+}
+
+async function loadUsers() {
+  const rows = $("#user-rows");
+  try {
+    const users = await api("/api/admin/users");
+    rows.innerHTML = "";
+    for (const u of users) {
+      const self = u.username === state.user;
+      const tr = document.createElement("tr");
+      if (u.blocked) tr.className = "blocked-row";
+      const actions = [
+        `<button class="mini" data-act="password" data-id="${u.id}">reset pw</button>`,
+        self ? "" : `<button class="mini" data-act="block" data-id="${u.id}" data-blocked="${u.blocked}">${u.blocked ? "unblock" : "block"}</button>`,
+        self ? "" : `<button class="mini danger" data-act="delete" data-id="${u.id}">delete</button>`,
+      ].join("");
+      tr.innerHTML =
+        `<td>${escapeHtml(u.username)}${self ? " <span class='you'>(you)</span>" : ""}</td>` +
+        `<td>${u.is_super ? "super ★" : "user"}</td>` +
+        `<td>${u.blocked ? "blocked" : "active"}</td>` +
+        `<td class="actions-col">${actions}</td>`;
+      rows.appendChild(tr);
+    }
+  } catch (err) { adminError(err.message); }
+}
+
+$("#admin-btn").addEventListener("click", openAdmin);
+$("#admin-close").addEventListener("click", closeAdmin);
+adminOverlay.addEventListener("click", (e) => { if (e.target === adminOverlay) closeAdmin(); });
+
+$("#new-invite-btn").addEventListener("click", () => {
+  adminError("");
+  withButton($("#new-invite-btn"), "minting", async () => {
+    try {
+      await api("/api/admin/invites", { method: "POST" });
+      await loadInvites();
+    } catch (err) { adminError(err.message); }
+  });
+});
+
+$("#user-rows").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  adminError("");
+  try {
+    if (btn.dataset.act === "block") {
+      const blocked = btn.dataset.blocked === "true";
+      await api(`/api/admin/users/${id}/block`, {
+        method: "POST", body: JSON.stringify({ blocked: !blocked }),
+      });
+      await loadUsers();
+    } else if (btn.dataset.act === "delete") {
+      if (!confirm("Delete this user permanently?")) return;
+      await api(`/api/admin/users/${id}`, { method: "DELETE" });
+      await loadUsers();
+    } else if (btn.dataset.act === "password") {
+      const password = prompt("New password for this user:");
+      if (!password) return;
+      await api(`/api/admin/users/${id}/password`, {
+        method: "POST", body: JSON.stringify({ password }),
+      });
+      adminError("");
+    }
+  } catch (err) { adminError(err.message); }
+});
 
 checkAuth();

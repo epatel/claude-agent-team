@@ -8,12 +8,24 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 
-def _client(tmp_path):
+def _app(tmp_path):
     conn = db.connect(tmp_path / "lab.db")
     app = build_app(
         labs_dir=tmp_path / "labs", config=Config(github_token="x"), conn=conn, secret="test-secret"
     )
+    return app, conn
+
+
+def _client(tmp_path):
+    app, conn = _app(tmp_path)
     return TestClient(app), conn
+
+
+def _register(client, username, password, invite=""):
+    return client.post(
+        "/api/register",
+        json={"username": username, "password": password, "invite": invite},
+    )
 
 
 def _src_repo(path):
@@ -35,21 +47,116 @@ def test_requires_auth(tmp_path):
 def test_register_login_logout(tmp_path):
     client, _ = _client(tmp_path)
 
-    r = client.post("/api/register", json={"username": "alice", "password": "pw"})
+    # first user becomes the super-user, no invite needed
+    r = _register(client, "alice", "pw")
     assert r.status_code == 200 and r.json()["username"] == "alice"
-    assert client.get("/api/me").json()["username"] == "alice"
-
-    # duplicate username
-    dup = client.post("/api/register", json={"username": "alice", "password": "x"})
-    assert dup.status_code == 409
+    assert r.json()["is_super"] is True
+    me = client.get("/api/me").json()
+    assert me["username"] == "alice" and me["is_super"] is True
 
     client.post("/api/logout")
     assert client.get("/api/me").status_code == 401
 
     ok = client.post("/api/login", json={"username": "alice", "password": "pw"})
-    assert ok.status_code == 200
+    assert ok.status_code == 200 and ok.json()["is_super"] is True
     bad = client.post("/api/login", json={"username": "alice", "password": "no"})
     assert bad.status_code == 401
+
+
+def test_second_user_needs_invite(tmp_path):
+    app, _ = _app(tmp_path)
+    super_c = TestClient(app)
+    assert _register(super_c, "root", "pw").json()["is_super"] is True
+
+    # a fresh client registering without an invite is rejected
+    bob = TestClient(app)
+    assert _register(bob, "bob", "pw").status_code == 403
+    # ...and with a bogus code, too
+    assert _register(bob, "bob", "pw", invite="nope").status_code == 403
+
+    # the super-user mints an invite
+    code = super_c.post("/api/admin/invites").json()["code"]
+
+    # which bob can redeem exactly once; he is NOT a super-user
+    ok = _register(bob, "bob", "pw", invite=code)
+    assert ok.status_code == 200 and ok.json()["is_super"] is False
+
+    # the code is now spent — a second person can't reuse it
+    carol = TestClient(app)
+    assert _register(carol, "carol", "pw", invite=code).status_code == 403
+
+
+def test_admin_requires_super(tmp_path):
+    app, _ = _app(tmp_path)
+    super_c = TestClient(app)
+    _register(super_c, "root", "pw")
+    code = super_c.post("/api/admin/invites").json()["code"]
+
+    bob = TestClient(app)
+    _register(bob, "bob", "pw", invite=code)
+
+    # a normal user is locked out of every admin route
+    assert bob.get("/api/admin/users").status_code == 403
+    assert bob.get("/api/admin/invites").status_code == 403
+    assert bob.post("/api/admin/invites").status_code == 403
+
+    # the super-user sees both accounts
+    users = super_c.get("/api/admin/users").json()
+    assert {u["username"] for u in users} == {"root", "bob"}
+    assert [u for u in users if u["username"] == "root"][0]["is_super"] is True
+
+
+def test_block_user_blocks_login(tmp_path):
+    app, _ = _app(tmp_path)
+    super_c = TestClient(app)
+    _register(super_c, "root", "pw")
+    code = super_c.post("/api/admin/invites").json()["code"]
+    bob = TestClient(app)
+    _register(bob, "bob", "pw", invite=code)
+    bob_id = [u for u in super_c.get("/api/admin/users").json() if u["username"] == "bob"][0]["id"]
+
+    # block bob → his existing session is rejected and he can't log back in
+    blocked = super_c.post(f"/api/admin/users/{bob_id}/block", json={"blocked": True})
+    assert blocked.status_code == 200
+    assert bob.get("/api/me").status_code == 403
+    fresh = TestClient(app)
+    assert fresh.post("/api/login", json={"username": "bob", "password": "pw"}).status_code == 403
+
+    # unblock → login works again
+    super_c.post(f"/api/admin/users/{bob_id}/block", json={"blocked": False})
+    assert fresh.post("/api/login", json={"username": "bob", "password": "pw"}).status_code == 200
+
+
+def test_reset_password_and_delete(tmp_path):
+    app, _ = _app(tmp_path)
+    super_c = TestClient(app)
+    _register(super_c, "root", "pw")
+    code = super_c.post("/api/admin/invites").json()["code"]
+    bob = TestClient(app)
+    _register(bob, "bob", "pw", invite=code)
+    bob_id = [u for u in super_c.get("/api/admin/users").json() if u["username"] == "bob"][0]["id"]
+
+    # reset bob's password — old one stops working, new one works
+    reset = super_c.post(f"/api/admin/users/{bob_id}/password", json={"password": "new"})
+    assert reset.status_code == 200
+    fresh = TestClient(app)
+    assert fresh.post("/api/login", json={"username": "bob", "password": "pw"}).status_code == 401
+    assert fresh.post("/api/login", json={"username": "bob", "password": "new"}).status_code == 200
+
+    # delete bob — he's gone
+    assert super_c.delete(f"/api/admin/users/{bob_id}").status_code == 200
+    assert {u["username"] for u in super_c.get("/api/admin/users").json()} == {"root"}
+
+
+def test_super_cannot_lock_out_self(tmp_path):
+    app, _ = _app(tmp_path)
+    super_c = TestClient(app)
+    _register(super_c, "root", "pw")
+    root_id = super_c.get("/api/admin/users").json()[0]["id"]
+
+    self_block = super_c.post(f"/api/admin/users/{root_id}/block", json={"blocked": True})
+    assert self_block.status_code == 400
+    assert super_c.delete(f"/api/admin/users/{root_id}").status_code == 400
 
 
 def test_create_and_list_projects(tmp_path):
