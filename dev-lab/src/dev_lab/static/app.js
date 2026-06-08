@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, isSuper: false, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "" };
+const state = { user: null, isSuper: false, needsInvite: true, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "" };
 
 mermaid.initialize({
   startOnLoad: false,
@@ -51,6 +51,12 @@ async function checkAuth() {
     state.isSuper = !!me.is_super;
     await showApp();
   } catch {
+    // Not logged in: find out whether registration requires an invite. The very
+    // first user is the super-user and registers without one, so we hide the field.
+    try {
+      const s = await api("/api/auth/state");
+      state.needsInvite = !!s.needs_invite;
+    } catch { /* default to requiring an invite if the probe fails */ }
     $("#login").hidden = false;
     $("#app").hidden = true;
   }
@@ -69,9 +75,14 @@ async function doAuth(path) {
   }
 }
 $("#auth-form").addEventListener("submit", (e) => { e.preventDefault(); doAuth("/api/login"); });
-// First click reveals the invite field (so a returning user can paste a code, or
-// the very first user can leave it blank); a second click submits the registration.
+// The first ever user is the super-user and needs no invite, so we register them
+// straight away. Once users exist, the first click reveals the invite field (so a
+// returning user can paste a code) and a second click submits the registration.
 $("#register-btn").addEventListener("click", () => {
+  if (!state.needsInvite) {
+    doAuth("/api/register");
+    return;
+  }
   const inv = $("#invite");
   if (inv.hidden) {
     inv.hidden = false;

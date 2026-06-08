@@ -118,6 +118,12 @@ def build_app(
         request.session["user_id"] = uid
         return {"username": username, "is_super": bool(first_user)}
 
+    @app.get("/api/auth/state")
+    async def auth_state(request: Request) -> dict:
+        # Public: lets the login screen decide whether to show the invite field.
+        # The first ever user is the super-user and registers without an invite.
+        return {"needs_invite": auth.count_users(conn) > 0}
+
     @app.post("/api/login")
     async def login(request: Request) -> dict:
         data = await request.json()
