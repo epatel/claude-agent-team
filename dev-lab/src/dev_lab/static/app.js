@@ -114,6 +114,7 @@ async function openProject(id) {
   $("#active-name").textContent = p.name;
   $("#active-branch").textContent = p.branch || "";
   $("#chat-form").hidden = false;
+  $("#merge-btn").hidden = false;
   const t = $("#transcript");
   t.innerHTML = "";
   setStatus("idle");
@@ -127,6 +128,28 @@ function setStatus(s) {
   el.dataset.status = s;
   el.textContent = s;
 }
+
+function systemLine(text, bad) {
+  const div = document.createElement("div");
+  div.className = "sys" + (bad ? " bad" : "");
+  div.textContent = text;
+  $("#transcript").appendChild(div);
+  scrollBottom();
+}
+
+$("#merge-btn").addEventListener("click", async () => {
+  if (state.activeId == null) return;
+  const btn = $("#merge-btn");
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/projects/${state.activeId}/merge`, { method: "POST" });
+    systemLine(`✓ merged ${r.branch} into ${r.base} @ ${r.commit.slice(0, 10)}`);
+  } catch (err) {
+    systemLine(`✗ merge failed: ${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* ---------- chat ---------- */
 const textarea = $("#chat-text");

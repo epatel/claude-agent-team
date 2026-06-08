@@ -53,6 +53,47 @@ class Workspace:
     def checkout(self, name: str) -> None:
         self._git("checkout", name)
 
+    def branch_exists(self, name: str) -> bool:
+        try:
+            self._git("rev-parse", "--verify", "--quiet", f"refs/heads/{name}")
+            return True
+        except WorkspaceError:
+            return False
+
+    def default_branch(self) -> str:
+        """Best-effort base branch: origin/HEAD, else main/master, else current."""
+        try:
+            ref = self._git("rev-parse", "--abbrev-ref", "origin/HEAD")
+            if ref.startswith("origin/"):
+                return ref.split("/", 1)[1]
+        except WorkspaceError:
+            pass
+        for candidate in ("main", "master"):
+            if self.branch_exists(candidate):
+                return candidate
+        return self.current_branch()
+
+    def merge(self, base: str, branch: str, *, message: str) -> str:
+        """Check out ``base`` and merge ``branch`` into it (no-ff).
+
+        Aborts the merge and raises ``WorkspaceError`` on conflict; returns the new
+        ``base`` HEAD sha on success.
+        """
+        self.checkout(base)
+        proc = subprocess.run(
+            ["git", "merge", "--no-ff", "-m", message, branch],
+            cwd=self.path,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            subprocess.run(
+                ["git", "merge", "--abort"], cwd=self.path, capture_output=True, text=True
+            )
+            detail = proc.stderr.strip() or proc.stdout.strip()
+            raise WorkspaceError(f"merge of {branch} into {base} failed (conflicts?): {detail}")
+        return self.head_sha()
+
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 

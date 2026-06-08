@@ -110,6 +110,22 @@ class ProjectManager:
         self._sessions[project_id] = session
         return session
 
+    async def merge_to_base(self, project_id: int) -> dict:
+        """Merge a project's chat branch into its base branch (locally)."""
+        session = self.open(project_id)
+        ws = session.workspace
+        branch = session.branch
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            if not ws.branch_exists(branch):
+                raise ProjectError("no work to merge yet — start a chat first")
+            base = ws.default_branch()
+            if base == branch:
+                raise ProjectError("the chat branch is the base branch; nothing to merge")
+            merged = ws.merge(base, branch, message=f"Merge {branch} into {base}")
+            ws.checkout(branch)  # restore so the session can keep going
+        return {"base": base, "branch": branch, "commit": merged}
+
     async def run_turn(self, project_id: int, message: str, *, on_event=None) -> TurnResult:
         """Run one chat turn for a project: persist message, run, persist state."""
         session = self.open(project_id)

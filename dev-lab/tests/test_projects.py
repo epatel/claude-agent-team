@@ -61,6 +61,38 @@ def test_discover_finds_existing_checkout(tmp_path):
     assert any(r["name"] == "dropped" for r in rows)
 
 
+def test_merge_to_base_lands_work(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "feature.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, _conn, labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create("p", str(src))["id"]
+    asyncio.run(pm.run_turn(pid, "add feature"))  # commits feature.txt on chat/<ts>
+
+    result = asyncio.run(pm.merge_to_base(pid))
+
+    clone = labs / "p"
+    base = result["base"]
+    assert result["branch"].startswith("chat/")
+    got = subprocess.run(
+        ["git", "-C", str(clone), "cat-file", "-e", f"{base}:feature.txt"]
+    ).returncode
+    assert got == 0  # the base branch now has the merged work
+
+
+def test_merge_without_work_errors(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, _labs = _pm(tmp_path)
+    pid = pm.create("p", str(src))["id"]
+    with pytest.raises(ProjectError, match="no work to merge"):
+        asyncio.run(pm.merge_to_base(pid))
+
+
 def test_run_turn_persists_messages_and_branch(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

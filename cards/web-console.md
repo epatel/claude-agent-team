@@ -30,6 +30,11 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
 - **Multi-project = isolation.** Each project is its own clone → its own cwd →
   its own Claude session and branch. Concurrent chat across projects is fine;
   turns within a project serialize on a per-project lock.
+- **Landing work.** A chat commits to its `chat/<ts>` branch; **merge → base**
+  (the header button / `POST /api/projects/{id}/merge`) merges that branch into
+  the project's default branch (`main`/`master`) locally, aborting on conflict,
+  and restores the chat branch so the session can continue. Pushing the result to
+  the remote is not wired yet (see the plan's open questions).
 - **Auth** — multi-user accounts (username + password, scrypt-hashed); a signed
   session cookie (Starlette `SessionMiddleware`, secret in `<labs>/.dev-lab/secret`).
   The `/ws` endpoint is gated by the same cookie.

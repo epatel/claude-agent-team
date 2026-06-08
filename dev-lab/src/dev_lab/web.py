@@ -20,6 +20,7 @@ from . import auth, db
 from .config import Config
 from .events import EventBus
 from .projects import ProjectError, ProjectManager
+from .workspace import WorkspaceError
 
 
 def _project_dict(row: sqlite3.Row) -> dict:
@@ -126,6 +127,16 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
         return _project_dict(row)
+
+    @app.post("/api/projects/{project_id}/merge")
+    async def merge_project(project_id: int, request: Request) -> dict:
+        current_user(request)
+        try:
+            result = await pm.merge_to_base(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
 
     @app.get("/api/projects/{project_id}/messages")
     async def messages(project_id: int, request: Request) -> list[dict]:

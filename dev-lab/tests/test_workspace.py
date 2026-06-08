@@ -20,6 +20,27 @@ def test_ensure_repo_rejects_non_repo(tmp_path):
         Workspace(tmp_path).ensure_repo()
 
 
+def test_branch_exists_and_merge(tmp_path):
+    ws = _init_repo(tmp_path)
+    base = ws.current_branch()
+    assert ws.default_branch() == base
+    assert not ws.branch_exists("chat/x")
+
+    ws.create_branch("chat/x")
+    (tmp_path / "feature.txt").write_text("hi\n")
+    ws.commit_all("add feature")
+    assert ws.branch_exists("chat/x")
+
+    merged = ws.merge(base, "chat/x", message="merge chat/x")
+    assert merged
+    assert ws.current_branch() == base
+    # base now contains the feature from the chat branch
+    got = subprocess.run(
+        ["git", "-C", str(tmp_path), "cat-file", "-e", f"{base}:feature.txt"]
+    ).returncode
+    assert got == 0
+
+
 def test_head_branch_and_commit(tmp_path):
     ws = _init_repo(tmp_path)
     ws.ensure_repo()

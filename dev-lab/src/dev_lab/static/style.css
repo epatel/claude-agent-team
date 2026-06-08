@@ -157,6 +157,10 @@ input:focus, textarea:focus {
   padding: 16px 24px; border-bottom: 1px solid var(--line);
 }
 .head-left { display: flex; align-items: center; gap: 12px; }
+.head-right { display: flex; align-items: center; gap: 14px; }
+.merge-btn { font-size: 11px; padding: 6px 12px; }
+.sys { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; padding: 4px 0; }
+.sys.bad { color: var(--bad); }
 .active-name { font-family: var(--mono); font-weight: 600; letter-spacing: .03em; }
 .status { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; }
 .status[data-status="running"] { color: var(--run); }

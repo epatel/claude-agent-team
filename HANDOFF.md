@@ -120,12 +120,12 @@ not an env var.
 ## What's left
 
 ### Gaps in what looks done (read these first)
-- **No GitHub push.** `workspace` commits to the *local* clone only; the lab
-  never pushes branches to GitHub. `GITHUB_TOKEN` is required by config but
-  currently **unused** (reserved for this). The repo-sync design (lab pushes →
-  extension clones from GitHub) is only half-wired: the extension can clone any
-  repo URL/path, but the lab doesn't publish commits yet. Implement push in
-  `workspace`/`lab` and use the token.
+- **No remote push (local merge only).** The web console can now **merge a chat
+  branch into the project's base branch locally** (`workspace.merge` →
+  `ProjectManager.merge_to_base` → `POST /api/projects/{id}/merge`, "merge → base"
+  button). But nothing is **pushed** to GitHub yet — `GITHUB_TOKEN` is used to
+  *clone* private repos, not to push. To complete repo-sync (push → extension
+  clones the pushed commit), add a `workspace.push` and a push step after merge.
 - **M2 not validated on a Pi.** Follow `deploy/README.md` on real hardware
   (install Claude Code CLI, `claude` login as the service user, systemd enable).
 - **Web console has no TLS.** Auth (accounts + signed cookie) exists, but the
