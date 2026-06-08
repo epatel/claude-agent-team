@@ -68,6 +68,37 @@ def test_create_and_list_projects(tmp_path):
     assert client.post("/api/projects", json={"remote_url": ""}).status_code == 400
 
 
+def test_branches_and_set_base(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    # add a second branch in the source so the clone can see it
+    subprocess.run(["git", "branch", "feature"], cwd=tmp_path / "myrepo", check=True)
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+
+    proj = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()
+    pid = proj["id"]
+
+    # the project dict exposes the effective base
+    assert proj["base_branch"] in ("main", "master")
+
+    # branches lists what the clone can see, plus the current effective base
+    branches = client.get(f"/api/projects/{pid}/branches").json()
+    assert "feature" in branches["branches"]
+    assert branches["base"] == proj["base_branch"]
+
+    # setting the base to an existing branch sticks
+    r = client.post(f"/api/projects/{pid}/base", json={"branch": "feature"})
+    assert r.status_code == 200 and r.json()["base_branch"] == "feature"
+    assert client.get(f"/api/projects/{pid}/branches").json()["base"] == "feature"
+    assert [p for p in client.get("/api/projects").json() if p["id"] == pid][0][
+        "base_branch"
+    ] == "feature"
+
+    # an unknown branch is a 4xx with a message
+    bad = client.post(f"/api/projects/{pid}/base", json={"branch": "nope"})
+    assert bad.status_code == 400 and "nope" in bad.json()["detail"]
+
+
 def test_messages_endpoint(tmp_path):
     client, conn = _client(tmp_path)
     client.post("/api/register", json={"username": "a", "password": "p"})

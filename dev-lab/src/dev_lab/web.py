@@ -23,8 +23,13 @@ from .projects import ProjectError, ProjectManager
 from .workspace import WorkspaceError
 
 
-def _project_dict(row: sqlite3.Row) -> dict:
-    return {"id": row["id"], "name": row["name"], "branch": row["branch"]}
+def _project_dict(pm: ProjectManager, row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "branch": row["branch"],
+        "base_branch": pm.effective_base(row),
+    }
 
 
 async def _run_turn(pm: ProjectManager, bus: EventBus, project_id: int, text: str) -> None:
@@ -113,7 +118,7 @@ def build_app(
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
         current_user(request)
-        return [_project_dict(r) for r in pm.discover()]
+        return [_project_dict(pm, r) for r in pm.discover()]
 
     @app.post("/api/projects")
     async def create_project(request: Request) -> dict:
@@ -125,7 +130,7 @@ def build_app(
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
-        return _project_dict(row)
+        return _project_dict(pm, row)
 
     @app.post("/api/projects/{project_id}/merge")
     async def merge_project(project_id: int, request: Request) -> dict:
@@ -152,6 +157,26 @@ def build_app(
         current_user(request)
         try:
             result = await pm.push_base(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
+    @app.get("/api/projects/{project_id}/branches")
+    async def list_branches(project_id: int, request: Request) -> dict:
+        current_user(request)
+        try:
+            return await pm.list_branches(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/projects/{project_id}/base")
+    async def set_base(project_id: int, request: Request) -> dict:
+        current_user(request)
+        data = await request.json()
+        name = (data.get("branch") or "").strip()
+        try:
+            result = await pm.set_base_branch(project_id, name)
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
@@ -184,7 +209,7 @@ def build_app(
                                 json.dumps({"type": "error", "error": "bad message"})
                             )
                     elif msg.get("type") == "state":
-                        projects = [_project_dict(r) for r in pm.discover()]
+                        projects = [_project_dict(pm, r) for r in pm.discover()]
                         await websocket.send_text(
                             json.dumps({"type": "state", "projects": projects})
                         )

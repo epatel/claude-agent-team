@@ -19,7 +19,7 @@ from . import db
 from .agent import run_task as _run_task
 from .config import Config
 from .session import LabSession, RunTask, TurnResult
-from .workspace import Workspace
+from .workspace import Workspace, WorkspaceError
 
 
 class ProjectError(RuntimeError):
@@ -140,6 +140,35 @@ class ProjectManager:
         row = db.get_project(self.conn, project_id)
         configured = row["base_branch"] if row is not None else None
         return configured or ws.default_branch()
+
+    def effective_base(self, row: sqlite3.Row) -> str | None:
+        """Effective base for display: configured override, else repo default.
+
+        Best-effort — returns the configured value (or ``None``) when the
+        workspace can't be inspected, so listing projects never fails on a
+        missing or broken clone.
+        """
+        configured = row["base_branch"]
+        if configured:
+            return configured
+        try:
+            ws = Workspace(Path(row["path"]))
+            ws.ensure_repo()
+            return ws.default_branch()
+        except WorkspaceError:
+            return None
+
+    async def list_branches(self, project_id: int) -> dict:
+        """Available branch names plus the project's current effective base."""
+        row = db.get_project(self.conn, project_id)
+        if row is None:
+            raise ProjectError(f"no such project: {project_id}")
+        ws = Workspace(Path(row["path"]))
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            branches = ws.list_branches()
+            base = self._base_branch(ws, project_id)
+        return {"branches": branches, "base": base}
 
     async def set_base_branch(self, project_id: int, name: str) -> dict:
         """Set the branch new chat threads are cut from (must already exist).
