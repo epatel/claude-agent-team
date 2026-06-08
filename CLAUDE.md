@@ -32,5 +32,6 @@ self-contained.
 - [subscription-auth](cards/subscription-auth.md) — auth via Claude subscription not API key, OAuth token, the API-key trap
 - [sqlite-runtime-data](cards/sqlite-runtime-data.md) — durable runtime data (run history, chat logs) in SQLite with migrations
 - [control-transports](cards/control-transports.md) — WebSocket for chat/UI control, HTTP+SSE for extension MCP servers
+- [no-double-submit](cards/no-double-submit.md) — guard buttons against double-tap (busy flag + disable + spinner); adding any button
 - [mcp-for-extensions](cards/mcp-for-extensions.md) — why extension capabilities are MCP servers
 - [python-venvs](cards/python-venvs.md) — Python + per-component venv layout

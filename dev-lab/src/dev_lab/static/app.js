@@ -24,6 +24,25 @@ async function api(path, opts = {}) {
   return r.status === 204 ? null : r.json();
 }
 
+// Run an async action behind a button, guarding against double-tap and showing a
+// busy/loading state. See cards/no-double-submit.md.
+async function withButton(btn, busyLabel, fn) {
+  if (btn.dataset.busy === "1") return; // already running — ignore the second tap
+  btn.dataset.busy = "1";
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add("is-loading");
+  if (busyLabel) btn.textContent = busyLabel;
+  try {
+    return await fn();
+  } finally {
+    delete btn.dataset.busy;
+    btn.disabled = false;
+    btn.classList.remove("is-loading");
+    btn.textContent = original;
+  }
+}
+
 /* ---------- auth ---------- */
 async function checkAuth() {
   try {
@@ -91,18 +110,21 @@ $("#np-cancel").addEventListener("click", () => {
   $("#new-project-btn").hidden = false;
   $("#np-error").textContent = "";
 });
-$("#new-project-form").addEventListener("submit", async (e) => {
+$("#new-project-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const remote_url = $("#np-url").value.trim();
-  try {
-    await api("/api/projects", { method: "POST", body: JSON.stringify({ remote_url }) });
-    $("#np-url").value = "";
-    $("#new-project-form").hidden = true;
-    $("#new-project-btn").hidden = false;
-    await loadProjects();
-  } catch (err) {
-    $("#np-error").textContent = err.message;
-  }
+  $("#np-error").textContent = "";
+  withButton($("#np-submit"), "cloning", async () => {
+    try {
+      await api("/api/projects", { method: "POST", body: JSON.stringify({ remote_url }) });
+      $("#np-url").value = "";
+      $("#new-project-form").hidden = true;
+      $("#new-project-btn").hidden = false;
+      await loadProjects();
+    } catch (err) {
+      $("#np-error").textContent = err.message;
+    }
+  });
 });
 
 async function openProject(id) {
@@ -135,18 +157,16 @@ function systemLine(text, bad) {
   scrollBottom();
 }
 
-$("#merge-btn").addEventListener("click", async () => {
+$("#merge-btn").addEventListener("click", () => {
   if (state.activeId == null) return;
-  const btn = $("#merge-btn");
-  btn.disabled = true;
-  try {
-    const r = await api(`/api/projects/${state.activeId}/merge`, { method: "POST" });
-    systemLine(`✓ merged ${r.branch} into ${r.base} @ ${r.commit.slice(0, 10)}`);
-  } catch (err) {
-    systemLine(`✗ merge failed: ${err.message}`, true);
-  } finally {
-    btn.disabled = false;
-  }
+  withButton($("#merge-btn"), "merging", async () => {
+    try {
+      const r = await api(`/api/projects/${state.activeId}/merge`, { method: "POST" });
+      systemLine(`✓ merged ${r.branch} into ${r.base} @ ${r.commit.slice(0, 10)}`);
+    } catch (err) {
+      systemLine(`✗ merge failed: ${err.message}`, true);
+    }
+  });
 });
 
 /* ---------- chat ---------- */

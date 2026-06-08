@@ -53,6 +53,20 @@ button.ghost {
   border: 1px solid var(--line);
 }
 button.ghost:hover { color: var(--text); border-color: var(--accent-dim); }
+button:disabled { cursor: progress; }
+button.is-loading { pointer-events: none; opacity: .9; }
+button.is-loading::before {
+  content: "";
+  display: inline-block;
+  width: 11px; height: 11px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin .65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 input, textarea {
   font-family: var(--sans);
