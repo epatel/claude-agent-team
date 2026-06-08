@@ -316,6 +316,17 @@ class ProjectManager:
             ws.ensure_repo()
             return ws.read_file(path)
 
+    async def raw_file(self, project_id: int, path: str) -> Path:
+        """Resolve a project working-tree file to its absolute path.
+
+        For raw byte streaming (images and other binaries the browser renders
+        directly, plus images referenced by relative paths inside markdown).
+        """
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            return ws.file_path(path)
+
     async def clear_chat(self, project_id: int) -> dict:
         """Erase a project's chat history and reset its agent context.
 
