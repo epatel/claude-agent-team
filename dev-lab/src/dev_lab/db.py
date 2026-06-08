@@ -70,6 +70,12 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
+    (
+        4,
+        """
+        ALTER TABLE projects ADD COLUMN base_branch TEXT;
+        """,
+    ),
 ]
 
 
@@ -169,6 +175,7 @@ def update_project(
     *,
     branch: str | None = None,
     last_session_id: str | None = None,
+    base_branch: str | None = None,
 ) -> None:
     sets, params = [], []
     if branch is not None:
@@ -177,6 +184,9 @@ def update_project(
     if last_session_id is not None:
         sets.append("last_session_id = ?")
         params.append(last_session_id)
+    if base_branch is not None:
+        sets.append("base_branch = ?")
+        params.append(base_branch)
     if not sets:
         return
     params.append(project_id)
