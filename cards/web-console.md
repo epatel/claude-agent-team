@@ -35,6 +35,11 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   the project's default branch (`main`/`master`) locally, aborting on conflict,
   and restores the chat branch so the session can continue. Pushing the result to
   the remote is not wired yet (see the plan's open questions).
+- **Refreshing the branch.** The mirror action **merge base → branch**
+  (`POST /api/projects/{id}/merge-base`) merges the base branch *into* the chat
+  branch — a local "pull into the project branch" so a long-running session keeps
+  working on top of base's latest commits. Like merge → base it aborts on
+  conflict; it leaves the working tree on the chat branch.
 - **Auth** — multi-user accounts (username + password, scrypt-hashed); a signed
   session cookie (Starlette `SessionMiddleware`, secret in `<labs>/.dev-lab/secret`).
   The `/ws` endpoint is gated by the same cookie.

@@ -204,6 +204,28 @@ class ProjectManager:
             ws.checkout(branch)  # restore so the session can keep going
         return {"base": base, "branch": branch, "commit": merged}
 
+    async def merge_base_into_branch(self, project_id: int) -> dict:
+        """Merge a project's base branch into its chat branch (locally) — a pull.
+
+        The mirror of ``merge_to_base``: instead of landing the chat branch on
+        base, it brings base's commits *into* the chat branch so the session
+        keeps working on an up-to-date branch. Checks out the chat branch and
+        merges base into it (``workspace.merge`` aborts and raises on conflict);
+        the working tree is left on the chat branch, ready for the next turn.
+        """
+        session = self.open(project_id)
+        ws = session.workspace
+        branch = session.branch
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            if not ws.branch_exists(branch):
+                raise ProjectError("no work branch yet — start a chat first")
+            base = self._base_branch(ws, project_id)
+            if base == branch:
+                raise ProjectError("the chat branch is the base branch; nothing to merge")
+            merged = ws.merge(branch, base, message=f"Merge {base} into {branch}")
+        return {"base": base, "branch": branch, "commit": merged}
+
     async def pull_base(self, project_id: int) -> dict:
         """Pull the project's base branch from origin (locally, fast-forward only)."""
         session = self.open(project_id)

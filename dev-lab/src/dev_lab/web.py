@@ -242,6 +242,16 @@ def build_app(
         await bus.publish({"type": "projects_changed"})
         return result
 
+    @app.post("/api/projects/{project_id}/merge-base")
+    async def merge_base_project(project_id: int, request: Request) -> dict:
+        current_user(request)
+        try:
+            result = await pm.merge_base_into_branch(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
     @app.post("/api/projects/{project_id}/pull")
     async def pull_project(project_id: int, request: Request) -> dict:
         current_user(request)
