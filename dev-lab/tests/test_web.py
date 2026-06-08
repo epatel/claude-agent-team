@@ -63,6 +63,18 @@ def test_register_login_logout(tmp_path):
     assert bad.status_code == 401
 
 
+def test_auth_state_flags_first_user(tmp_path):
+    client, _ = _client(tmp_path)
+
+    # no users yet → the first registrant needs no invite
+    assert client.get("/api/auth/state").json()["needs_invite"] is False
+
+    _register(client, "alice", "pw")
+
+    # once a user exists, registration requires an invite
+    assert client.get("/api/auth/state").json()["needs_invite"] is True
+
+
 def test_second_user_needs_invite(tmp_path):
     app, _ = _app(tmp_path)
     super_c = TestClient(app)
