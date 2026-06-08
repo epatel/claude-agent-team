@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>the lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="loading">
+  <!-- LOGIN -->
+  <main id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="brand">◢◤ THE&nbsp;LAB</div>
+      <p class="tagline">autonomous agent control room</p>
+      <form id="auth-form" autocomplete="on">
+        <input id="username" name="username" autocomplete="username" placeholder="username" required />
+        <input id="password" name="password" type="password" autocomplete="current-password"
+          placeholder="password" required />
+        <div id="auth-error" class="error"></div>
+        <div class="auth-actions">
+          <button type="submit">log in</button>
+          <button type="button" id="register-btn" class="ghost">register</button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- APP -->
+  <div id="app" class="app" hidden>
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span class="brand-sm">◢◤ LAB</span>
+        <span id="who" class="who"></span>
+      </div>
+      <button id="new-project-btn" class="new-project">+ new project</button>
+      <form id="new-project-form" class="new-project-form" hidden>
+        <input id="np-name" placeholder="name" required />
+        <input id="np-url" placeholder="git url (https://…)" required />
+        <div class="np-actions">
+          <button type="submit">clone</button>
+          <button type="button" id="np-cancel" class="ghost">cancel</button>
+        </div>
+        <div id="np-error" class="error"></div>
+      </form>
+      <ul id="project-list" class="project-list"></ul>
+      <button id="logout-btn" class="logout ghost">log out</button>
+    </aside>
+
+    <main class="chat">
+      <header class="chat-head">
+        <div class="head-left">
+          <span id="active-name" class="active-name">—</span>
+          <span id="active-branch" class="branch-chip"></span>
+        </div>
+        <span id="active-status" class="status"></span>
+      </header>
+      <div id="transcript" class="transcript">
+        <div class="empty" id="empty-state">select or clone a project to start talking</div>
+      </div>
+      <form id="chat-form" class="chat-input" hidden>
+        <textarea id="chat-text" rows="1" placeholder="message the agent —  ⏎ to send, ⇧⏎ for newline"></textarea>
+        <button type="submit" aria-label="send">↦</button>
+      </form>
+    </main>
+  </div>
+
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/purify.min.js"></script>
+  <script src="/vendor/mermaid.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -24,3 +24,6 @@ dev-lab = "dev_lab.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+dev_lab = ["static/*", "static/vendor/*"]
