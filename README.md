@@ -7,6 +7,8 @@ testing on macOS) from extension clients exposed as MCP servers.
 
 - **Plan:** [`project-plan.md`](project-plan.md) — goal, milestones, decisions, open questions.
 - **Architecture & docs:** [`CLAUDE.md`](CLAUDE.md) — orientation + a card index.
+- **Run it:** [`QUICKSTART.md`](QUICKSTART.md) — local/test and production setup.
+- **Status:** [`HANDOFF.md`](HANDOFF.md) — where things are and what's left.
 
 ## Repository layout
 
