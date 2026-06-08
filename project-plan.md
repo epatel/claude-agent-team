@@ -27,7 +27,7 @@ commits that an extension client has built and tested."
 - [x] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: agent, status: done 2026-06-08, live-verified)
 - [x] M2 — Run uninterrupted on Pi 5: systemd service, restart-on-crash, durable job queue (owner: agent, status: done 2026-06-08; verified locally, not yet on real Pi hardware)
 - [x] M3 — Chat client: control surface to send instructions, stream agent output (owner: agent, status: done 2026-06-08, live-verified)
-- [x] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: agent, status: done 2026-06-08; MCP server live-verified, agent-uses-tool not yet exercised live)
+- [x] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: agent, status: done 2026-06-08, live-verified end-to-end)
 - [ ] M5 — Hardening: cross-component auth, reconnection, observability, multi-extension discovery (owner: unassigned, status: not started)
 
 ## Decisions
@@ -97,10 +97,12 @@ commit landed, and the run was recorded in SQLite (~$0.13).
 (`builder.run_in_checkout`: clone → checkout ref → run command → return
 result). The lab reaches it via `EXTENSIONS` env; `agent.build_agent_options`
 turns each into an `{type: sse, url}` MCP server plus an `mcp__<name>` allowed
-tool. Verified: 41 tests; lint clean. **MCP server live-verified over SSE** (an
-MCP client listed tools and ran `run_tests` against a local repo). **Not yet
-exercised live: the lab's agent autonomously calling the extension tool** (needs
-a credit-spending run).
+tool. Verified: 41 tests; lint clean. **Live-verified end-to-end**: with the extension
+server running and `dev-lab serve` wired via `EXTENSIONS`, a chat instruction
+drove the agent to autonomously call the remote `run_tests` tool — confirmed by
+the extension log (`Processing request of type CallToolRequest`), an
+absolute-path side-effect file written by the test command, and the unique
+stdout token flowing back into the chat report.
 
 Next: **M5** — hardening: auth on the WebSocket control surface and the extension
 SSE endpoints, reconnection, observability, multi-extension discovery.
