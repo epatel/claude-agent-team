@@ -224,6 +224,37 @@ class ProjectManager:
             commit = ws.push(base)
         return {"base": base, "commit": commit}
 
+    def _workspace(self, project_id: int) -> Workspace:
+        """A bare ``Workspace`` for a project (read-only inspection helpers)."""
+        row = db.get_project(self.conn, project_id)
+        if row is None:
+            raise ProjectError(f"no such project: {project_id}")
+        return Workspace(Path(row["path"]))
+
+    async def commit_diff(self, project_id: int, sha: str) -> dict:
+        """Subject + unified patch for a single commit in a project."""
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            subject = ws.commit_subject(sha)
+            diff = ws.commit_diff(sha)
+        return {"sha": sha, "subject": subject, "diff": diff}
+
+    async def list_tree(self, project_id: int, path: str = "") -> dict:
+        """One directory level of a project's working tree (repo browser)."""
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            entries = ws.list_tree(path)
+        return {"path": path, "entries": entries}
+
+    async def read_file(self, project_id: int, path: str) -> dict:
+        """Read one working-tree file from a project for display."""
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            return ws.read_file(path)
+
     async def run_turn(self, project_id: int, message: str, *, on_event=None) -> TurnResult:
         """Run one chat turn for a project: persist message, run, persist state."""
         session = self.open(project_id)

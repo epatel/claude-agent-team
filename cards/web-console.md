@@ -49,6 +49,12 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
 - **Projects** — auto-discovered from existing checkouts in `labs/`, or created by
   cloning a git URL (`GITHUB_TOKEN`-injected for private). Names are single dir
   segments.
+- **Inspecting work.** Each committed turn shows a **view-diff** button (the
+  commit chip) that opens `GET /api/projects/{id}/commits/{sha}/diff` in a modal
+  (`diff.js` renders the unified patch as collapsible per-file blocks). A
+  **browse files** header button opens a read-only repo browser backed by
+  `GET …/tree?path=` (lazy, one dir level) and `GET …/file?path=` (text/markdown,
+  binary + 512 KB guards; `.git` hidden, path-traversal refused).
 - **Rendering** — assistant output is untrusted markdown → `marked` →
   **`DOMPurify.sanitize`** → mermaid (`securityLevel: "strict"`) for ```mermaid
   blocks. Frontend libs are vendored under `static/vendor/` (no build, offline-ok).

@@ -289,6 +289,30 @@ def build_app(
             {"role": m["role"], "content": m["content"]} for m in db.list_messages(conn, project_id)
         ]
 
+    @app.get("/api/projects/{project_id}/commits/{sha}/diff")
+    async def commit_diff(project_id: int, sha: str, request: Request) -> dict:
+        current_user(request)
+        try:
+            return await pm.commit_diff(project_id, sha)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/projects/{project_id}/tree")
+    async def project_tree(project_id: int, request: Request, path: str = "") -> dict:
+        current_user(request)
+        try:
+            return await pm.list_tree(project_id, path)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.get("/api/projects/{project_id}/file")
+    async def project_file(project_id: int, request: Request, path: str) -> dict:
+        current_user(request)
+        try:
+            return await pm.read_file(project_id, path)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         if not websocket.session.get("user_id"):
