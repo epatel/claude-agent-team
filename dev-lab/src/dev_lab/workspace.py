@@ -47,8 +47,55 @@ class Workspace:
     def current_branch(self) -> str:
         return self._git("rev-parse", "--abbrev-ref", "HEAD")
 
-    def create_branch(self, name: str) -> None:
+    def create_branch(self, name: str, base: str | None = None) -> None:
+        """Create and check out ``name``.
+
+        When ``base`` is ``None`` the new branch is cut from the current HEAD
+        (the original behaviour). Otherwise ``base`` is checked out first — if it
+        exists only as a remote-tracking ref (``origin/<base>``) a local tracking
+        branch is created from it — and ``name`` is then cut from ``base``.
+        """
+        if base is not None:
+            self._checkout_base(base)
         self._git("checkout", "-b", name)
+
+    def _checkout_base(self, base: str) -> None:
+        """Check out ``base``, materialising it from ``origin/<base>`` if needed."""
+        if self.branch_exists(base):
+            self.checkout(base)
+            return
+        try:
+            self._git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{base}")
+        except WorkspaceError:
+            raise WorkspaceError(
+                f"base branch not found locally or on origin: {base}"
+            ) from None
+        self._git("checkout", "-b", base, f"origin/{base}")
+
+    def list_branches(self) -> list[str]:
+        """Return available branch names, deduped and sorted.
+
+        Includes local heads plus remote-tracking refs under ``origin/`` (with
+        the ``origin/`` prefix stripped), so a branch that exists only as
+        ``origin/<name>`` can still be targeted by ``<name>``. ``origin/HEAD`` is
+        excluded.
+        """
+        out = self._git(
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+            "refs/remotes/origin",
+        )
+        names: set[str] = set()
+        for line in out.splitlines():
+            line = line.strip()
+            if not line or line.endswith("/HEAD"):
+                continue
+            if line.startswith("origin/"):
+                names.add(line[len("origin/"):])
+            else:
+                names.add(line)
+        return sorted(names)
 
     def checkout(self, name: str) -> None:
         self._git("checkout", name)
