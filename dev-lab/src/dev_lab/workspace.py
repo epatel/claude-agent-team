@@ -180,6 +180,16 @@ class Workspace:
         self._git("push", "origin", branch)
         return self._git("rev-parse", branch)
 
+    def fetch(self, branch: str) -> str:
+        """Fetch ``branch`` from origin; return the remote-tracking HEAD sha.
+
+        Updates ``origin/<branch>`` without touching the working tree or the
+        checked-out branch. Raises ``WorkspaceError`` if the fetch fails
+        (missing remote, auth failure, unknown branch, …).
+        """
+        self._git("fetch", "origin", branch)
+        return self._git("rev-parse", f"origin/{branch}")
+
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 
