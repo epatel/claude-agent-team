@@ -190,6 +190,17 @@ class Workspace:
         self._git("fetch", "origin", branch)
         return self._git("rev-parse", f"origin/{branch}")
 
+    def remote_url(self) -> str | None:
+        """The ``origin`` remote URL, or ``None`` if there is no origin."""
+        try:
+            return self._git("remote", "get-url", "origin")
+        except WorkspaceError:
+            return None
+
+    def set_remote_url(self, url: str) -> None:
+        """Point ``origin`` at ``url`` (used to (re)apply a project's auth token)."""
+        self._git("remote", "set-url", "origin", url)
+
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 

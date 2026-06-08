@@ -175,11 +175,16 @@ $("#np-cancel").addEventListener("click", () => {
 $("#new-project-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const remote_url = $("#np-url").value.trim();
+  const github_token = $("#np-token").value.trim();
   $("#np-error").textContent = "";
   withButton($("#np-submit"), "cloning", async () => {
     try {
-      await api("/api/projects", { method: "POST", body: JSON.stringify({ remote_url }) });
+      await api("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ remote_url, github_token }),
+      });
       $("#np-url").value = "";
+      $("#np-token").value = "";
       $("#new-project-form").hidden = true;
       $("#new-project-btn").hidden = false;
       await loadProjects();
@@ -204,6 +209,7 @@ async function openProject(id) {
   $("#merge-base-btn").hidden = false;
   $("#merge-btn").hidden = false;
   $("#head-tabs").hidden = false;
+  renderToken(p);
   setTab("chat");
   const t = $("#transcript");
   t.innerHTML = "";
@@ -227,6 +233,41 @@ function setTab(name) {
 }
 document.querySelectorAll("#head-tabs .tab").forEach((t) => {
   t.addEventListener("click", () => setTab(t.dataset.tab));
+});
+
+/* ---------- per-project GitHub token ---------- */
+function renderToken(p) {
+  $("#token-form").hidden = false;
+  $("#token-input").value = "";
+  $("#token-error").textContent = "";
+  $("#token-status").textContent = p.has_token ? "🔒 token set" : "no token";
+  $("#token-clear").hidden = !p.has_token;
+}
+
+async function saveToken(github_token) {
+  const id = state.activeId;
+  if (id == null) return;
+  $("#token-error").textContent = "";
+  try {
+    await api(`/api/projects/${id}/token`, {
+      method: "POST",
+      body: JSON.stringify({ github_token }),
+    });
+    $("#token-input").value = "";
+    await loadProjects();
+    const p = state.projects.find((x) => x.id === id);
+    if (p) renderToken(p);
+  } catch (err) {
+    $("#token-error").textContent = err.message;
+  }
+}
+
+$("#token-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  withButton($("#token-save"), "saving", () => saveToken($("#token-input").value.trim()));
+});
+$("#token-clear").addEventListener("click", () => {
+  withButton($("#token-clear"), "clearing", () => saveToken(""));
 });
 
 /* ---------- base branch (for new chat threads) ---------- */

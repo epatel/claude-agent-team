@@ -6,7 +6,7 @@ import pytest
 from dev_lab import db
 from dev_lab.agent import AgentResult
 from dev_lab.config import Config
-from dev_lab.projects import ProjectError, ProjectManager
+from dev_lab.projects import ProjectError, ProjectManager, _authed_url, _strip_credentials
 
 
 def _src_repo(path: Path) -> None:
@@ -21,7 +21,7 @@ def _src_repo(path: Path) -> None:
 
 def _pm(tmp_path, run_task=None):
     conn = db.connect(tmp_path / "lab.db")
-    kwargs = {"labs_dir": tmp_path / "labs", "config": Config(github_token="x"), "conn": conn}
+    kwargs = {"labs_dir": tmp_path / "labs", "config": Config(), "conn": conn}
     if run_task is not None:
         kwargs["run_task"] = run_task
     return ProjectManager(**kwargs), conn, tmp_path / "labs"
@@ -245,6 +245,68 @@ def test_merge_uses_configured_base(tmp_path):
         ["git", "-C", str(clone), "cat-file", "-e", "release:feature.txt"]
     ).returncode
     assert got == 0
+
+
+def test_authed_url_embeds_and_strips_token():
+    url = "https://github.com/owner/repo.git"
+    assert _authed_url(url, "tok") == "https://x-access-token:tok@github.com/owner/repo.git"
+    # no token -> unchanged; ssh remote -> unchanged (token does not apply)
+    assert _authed_url(url, None) == url
+    assert _authed_url("git@github.com:owner/repo.git", "tok") == "git@github.com:owner/repo.git"
+    # an already-tokened url is re-tokened cleanly, never double-embedded
+    again = _authed_url(_authed_url(url, "old"), "new")
+    assert again == "https://x-access-token:new@github.com/owner/repo.git"
+
+
+def test_strip_credentials_removes_embedded_auth():
+    assert (
+        _strip_credentials("https://x-access-token:tok@github.com/o/r.git")
+        == "https://github.com/o/r.git"
+    )
+    assert _strip_credentials("https://github.com/o/r.git") == "https://github.com/o/r.git"
+
+
+def test_create_persists_token_and_strips_url(tmp_path):
+    src = tmp_path / "myrepo"
+    _src_repo(src)
+    pm, conn, _labs = _pm(tmp_path)
+
+    row = pm.create(str(src), github_token="sekret")
+
+    assert row["github_token"] == "sekret"
+    # never persist a credential-bearing remote_url
+    assert "@" not in (row["remote_url"] or "")
+
+
+def test_create_without_token_has_none(tmp_path):
+    src = tmp_path / "myrepo"
+    _src_repo(src)
+    pm, conn, _labs = _pm(tmp_path)
+
+    row = pm.create(str(src))
+
+    assert row["github_token"] is None
+
+
+def test_set_token_sets_and_clears(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, conn, _labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+
+    out = asyncio.run(pm.set_token(pid, "tok"))
+    assert out["has_token"] is True
+    assert db.get_project(conn, pid)["github_token"] == "tok"
+
+    out = asyncio.run(pm.set_token(pid, ""))
+    assert out["has_token"] is False
+    assert db.get_project(conn, pid)["github_token"] is None
+
+
+def test_set_token_unknown_project_errors(tmp_path):
+    pm, _conn, _labs = _pm(tmp_path)
+    with pytest.raises(ProjectError, match="no such project"):
+        asyncio.run(pm.set_token(999, "tok"))
 
 
 def test_run_turn_persists_messages_and_branch(tmp_path):

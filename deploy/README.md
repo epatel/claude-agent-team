@@ -22,7 +22,7 @@ git clone <this repo> ~/claude-agent-team
 cd ~/claude-agent-team/dev-lab
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
-cp .env.example .env        # set GITHUB_TOKEN
+cp .env.example .env        # optional overrides only; GitHub auth is per project
 ```
 
 ## 3. The work repo

@@ -29,7 +29,7 @@ def test_run_once_makes_one_commit(tmp_path):
         (Path(cwd) / "feature.txt").write_text("added by agent\n")
         return _ok_result()
 
-    cfg = Config(github_token="x")
+    cfg = Config()
     result = asyncio.run(
         run_once("add a feature file", repo_path=tmp_path, config=cfg, run_task=fake_run_task)
     )
@@ -50,7 +50,7 @@ def test_run_once_no_changes_no_commit(tmp_path):
     async def noop_run_task(instruction, *, cwd, model):
         return _ok_result()
 
-    cfg = Config(github_token="x")
+    cfg = Config()
     result = asyncio.run(
         run_once("do nothing", repo_path=tmp_path, config=cfg, run_task=noop_run_task)
     )
@@ -66,6 +66,6 @@ def test_run_once_rejects_dirty_tree(tmp_path):
     async def fake(instruction, *, cwd, model):
         return _ok_result()
 
-    cfg = Config(github_token="x")
+    cfg = Config()
     with pytest.raises(RuntimeError, match="uncommitted"):
         asyncio.run(run_once("x", repo_path=tmp_path, config=cfg, run_task=fake))
