@@ -36,6 +36,28 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
+    (
+        2,
+        """
+        CREATE TABLE projects (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL UNIQUE,
+            path            TEXT NOT NULL,
+            remote_url      TEXT,
+            branch          TEXT,
+            last_session_id TEXT,
+            created_at      REAL NOT NULL
+        );
+        CREATE TABLE messages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id  INTEGER NOT NULL REFERENCES projects(id),
+            role        TEXT NOT NULL,              -- 'user' | 'assistant'
+            content     TEXT NOT NULL,
+            created_at  REAL NOT NULL
+        );
+        CREATE INDEX idx_messages_project ON messages(project_id, id);
+        """,
+    ),
 ]
 
 
@@ -100,3 +122,71 @@ def record_run(
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+# --- Projects -------------------------------------------------------------
+
+def create_project(
+    conn: sqlite3.Connection, *, name: str, path: str, remote_url: str | None = None
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO projects (name, path, remote_url, created_at) VALUES (?, ?, ?, ?)",
+        (name, path, remote_url, time.time()),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def get_project(conn: sqlite3.Connection, project_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+
+def get_project_by_name(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM projects WHERE name = ?", (name,)).fetchone()
+
+
+def list_projects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM projects ORDER BY name"))
+
+
+def update_project(
+    conn: sqlite3.Connection,
+    project_id: int,
+    *,
+    branch: str | None = None,
+    last_session_id: str | None = None,
+) -> None:
+    sets, params = [], []
+    if branch is not None:
+        sets.append("branch = ?")
+        params.append(branch)
+    if last_session_id is not None:
+        sets.append("last_session_id = ?")
+        params.append(last_session_id)
+    if not sets:
+        return
+    params.append(project_id)
+    conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE id = ?", params)
+    conn.commit()
+
+
+# --- Messages -------------------------------------------------------------
+
+def record_message(conn: sqlite3.Connection, *, project_id: int, role: str, content: str) -> int:
+    cur = conn.execute(
+        "INSERT INTO messages (project_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+        (project_id, role, content, time.time()),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def list_messages(
+    conn: sqlite3.Connection, project_id: int, *, limit: int = 500
+) -> list[sqlite3.Row]:
+    return list(
+        conn.execute(
+            "SELECT * FROM messages WHERE project_id = ? ORDER BY id LIMIT ?",
+            (project_id, limit),
+        )
+    )

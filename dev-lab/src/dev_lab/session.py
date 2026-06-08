@@ -43,14 +43,18 @@ class LabSession:
         repo_path: str | Path,
         config: Config,
         branch: str | None = None,
+        session_id: str | None = None,
+        branch_started: bool = False,
         run_task: RunTask = _run_task,
     ) -> None:
         self.workspace = Workspace(Path(repo_path))
         self.config = config
         self.branch = branch or f"chat/{int(time.time())}"
         self._run_task = run_task
-        self._started = False
-        self.session_id: str | None = None
+        # ``branch_started`` means the branch already exists (restored across a
+        # restart) — check it out rather than create it on the first turn.
+        self._started = branch_started
+        self.session_id = session_id
 
     async def run_turn(
         self,
