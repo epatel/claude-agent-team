@@ -182,6 +182,42 @@ def test_list_tree_and_read_file(tmp_path):
     assert blob["binary"] is True and blob["content"] == ""
 
 
+def test_diff_status_against_base(tmp_path):
+    """diff_status flags working-tree divergence from base in every direction.
+
+    Covers the stale-checkout case (a file on base missing from the parked
+    branch surfaces as ``deleted``), plus committed-on-branch, modified, and
+    untracked changes.
+    """
+    ws = _init_repo(tmp_path)
+    base = ws.current_branch()
+
+    # On base, add a second file the stale branch will end up missing.
+    initial = ws.head_sha()
+    (tmp_path / "CLAUDE.md").write_text("guide\n")
+    ws.commit_all("add CLAUDE.md")
+
+    # A clean checkout of base diverges from base in no way.
+    assert ws.diff_status(base) == {}
+
+    # Park on an old branch cut from the initial commit (lacks CLAUDE.md),
+    # commit a new file, edit a tracked one, and drop an untracked file.
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "checkout", "-q", "-b", "chat/stale", initial],
+        check=True,
+    )
+    (tmp_path / "feature.txt").write_text("hi\n")
+    ws.commit_all("add feature.txt")
+    (tmp_path / "README.md").write_text("seed\nmore\n")  # modified, uncommitted
+    (tmp_path / "scratch.tmp").write_text("temp\n")  # untracked
+
+    status = ws.diff_status(base)
+    assert status["CLAUDE.md"] == "deleted"  # on base, absent from this checkout
+    assert status["feature.txt"] == "new"  # committed on the branch, not on base
+    assert status["README.md"] == "modified"  # uncommitted edit
+    assert status["scratch.tmp"] == "new"  # untracked
+
+
 def test_safe_path_blocks_traversal(tmp_path):
     ws = _init_repo(tmp_path)
     with pytest.raises(WorkspaceError):

@@ -54,7 +54,16 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   (`diff.js` renders the unified patch as collapsible per-file blocks). A
   **browse files** header button opens a read-only repo browser backed by
   `GET …/tree?path=` (lazy, one dir level) and `GET …/file?path=` (text/markdown,
-  binary + 512 KB guards; `.git` hidden, path-traversal refused).
+  binary + 512 KB guards; `.git` hidden, path-traversal refused). It shows the
+  **working tree** (what's actually checked out), and `…/tree` annotates each
+  entry with its **status vs the base branch** (`new`/`modified`, dirs flagged if
+  they contain changes) plus the current `branch`, the `base`, and `missing` —
+  the count of files that exist on base but not in the checkout. So a project
+  parked on a stale `chat/<ts>` branch (cut before later files were merged into
+  base) shows its real, short listing *with* a "N files on base not in this
+  checkout" hint, instead of silently looking complete. (Earlier this read the
+  raw working tree with no annotation, so a stale-branch checkout looked like the
+  whole repo and the divergence was invisible even after pull/push/merge.)
 - **Rendering** — assistant output is untrusted markdown → `marked` →
   **`DOMPurify.sanitize`** → mermaid (`securityLevel: "strict"`) for ```mermaid
   blocks. Frontend libs are vendored under `static/vendor/` (no build, offline-ok).

@@ -570,9 +570,11 @@ async function openFiles() {
   $("#file-content").innerHTML = '<div class="file-empty">select a file to view it</div>';
   const tree = $("#file-tree");
   tree.innerHTML = '<div class="modal-loading">loading…</div>';
+  $("#files-context").hidden = true;
   $("#files-dialog").showModal();
   try {
-    const { entries } = await api(`/api/projects/${state.activeId}/tree`);
+    const { entries, branch, base, missing } = await api(`/api/projects/${state.activeId}/tree`);
+    renderFilesContext(branch, base, missing);
     renderTree(tree, entries, 0);
   } catch (err) {
     tree.innerHTML = "";
@@ -582,6 +584,29 @@ async function openFiles() {
     tree.appendChild(d);
   }
 }
+
+function renderFilesContext(branch, base, missing) {
+  const el = $("#files-context");
+  if (!branch) {
+    el.hidden = true;
+    return;
+  }
+  el.textContent = "";
+  const onBase = base && branch === base;
+  const b = document.createElement("span");
+  b.className = "files-branch";
+  b.textContent = onBase ? `on ${branch}` : `on ${branch} · base ${base}`;
+  el.appendChild(b);
+  if (missing > 0) {
+    const warn = document.createElement("span");
+    warn.className = "files-missing";
+    warn.textContent = `${missing} file${missing === 1 ? "" : "s"} on ${base} not in this checkout`;
+    el.appendChild(warn);
+  }
+  el.hidden = false;
+}
+
+const STATUS_LABEL = { new: "A", modified: "M", deleted: "D" };
 
 function renderTree(container, entries, depth) {
   container.innerHTML = "";
@@ -596,6 +621,15 @@ function appendTreeNode(container, entry, depth) {
   const icon = entry.type === "dir" ? "▸ " : "";
   row.innerHTML = `<span class="tree-icon">${icon}</span><span class="tree-name"></span>`;
   row.querySelector(".tree-name").textContent = entry.name;
+  if (entry.status) {
+    row.classList.add("tree-changed", "tree-status-" + entry.status);
+    const badge = document.createElement("span");
+    badge.className = "tree-status";
+    badge.textContent = entry.type === "dir" ? "●" : STATUS_LABEL[entry.status] || "●";
+    badge.title =
+      entry.type === "dir" ? "contains changes vs base" : "differs from base (" + entry.status + ")";
+    row.appendChild(badge);
+  }
   container.appendChild(row);
 
   if (entry.type === "dir") {
