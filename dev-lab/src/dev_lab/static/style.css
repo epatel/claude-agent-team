@@ -403,7 +403,22 @@ button.danger:hover { filter: brightness(1.08); }
   white-space: pre; overflow-x: auto; margin: 0;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
 }
+.file-code code { font-family: inherit; background: none; padding: 0; }
 .file-truncated { color: var(--run); font-family: var(--mono); font-size: 11px; margin-top: 10px; }
+
+/* highlight.js theme — tuned to the control-room palette (offline, vendored). */
+.hljs { color: var(--text); background: none; }
+.hljs-comment, .hljs-quote { color: var(--faint); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal,
+.hljs-section, .hljs-doctag, .hljs-name, .hljs-type { color: #c792ea; }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta-string { color: var(--accent); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-template-variable,
+.hljs-variable, .hljs-link { color: var(--run); }
+.hljs-title, .hljs-title.function_, .hljs-built_in, .hljs-attr,
+.hljs-attribute, .hljs-selector-id, .hljs-selector-class { color: #82aaff; }
+.hljs-tag, .hljs-meta, .hljs-deletion { color: var(--muted); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
 .file-img {
   max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px;
   background: var(--panel); background-image:

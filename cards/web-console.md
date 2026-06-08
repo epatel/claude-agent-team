@@ -80,6 +80,15 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
 - **Rendering** — assistant output is untrusted markdown → `marked` →
   **`DOMPurify.sanitize`** → mermaid (`securityLevel: "strict"`) for ```mermaid
   blocks. Frontend libs are vendored under `static/vendor/` (no build, offline-ok).
+- **Syntax highlighting (pretty print)** — common source files in the repo
+  browser, plus fenced code blocks in chat/markdown, are highlighted with
+  **highlight.js** (vendored `static/vendor/highlight.min.js`, ~36 languages).
+  `langForFilename` in `app.js` maps a filename (extension + a few basenames like
+  `Dockerfile`/`Makefile`) to a language; `highlightInto` highlights into a
+  `<code class="hljs">` and falls back to auto-detect, then to plain text, so a
+  miss never blanks the viewer. hljs emits its own escaped span markup (safe to
+  set via `innerHTML`). The theme is a small in-house `.hljs-*` ruleset in
+  `style.css` keyed to the control-room palette (no separate theme file).
 - **State** — all lab state lives under `<labs>/.dev-lab/` (SQLite db + cookie
   secret), out of any project repo.
 
