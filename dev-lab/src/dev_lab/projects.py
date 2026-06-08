@@ -19,6 +19,7 @@ from . import db
 from .agent import run_task as _run_task
 from .config import Config
 from .session import LabSession, RunTask, TurnResult
+from .workspace import Workspace
 
 
 class ProjectError(RuntimeError):
@@ -126,12 +127,37 @@ class ProjectManager:
             repo_path=row["path"],
             config=self.config,
             branch=row["branch"] or None,
+            base_branch=row["base_branch"] or None,
             session_id=row["last_session_id"],
             branch_started=bool(row["branch"]),
             run_task=self._run_task,
         )
         self._sessions[project_id] = session
         return session
+
+    def _base_branch(self, ws, project_id: int) -> str:
+        """The project's configured base branch, or the repo default when unset."""
+        row = db.get_project(self.conn, project_id)
+        configured = row["base_branch"] if row is not None else None
+        return configured or ws.default_branch()
+
+    async def set_base_branch(self, project_id: int, name: str) -> dict:
+        """Set the branch new chat threads are cut from (must already exist).
+
+        Only affects newly-started chat threads — an in-progress session keeps
+        the base it was started on. Validates against a fresh ``Workspace`` (not
+        ``open()``) so it doesn't cache a session that would shadow the new base.
+        """
+        row = db.get_project(self.conn, project_id)
+        if row is None:
+            raise ProjectError(f"no such project: {project_id}")
+        ws = Workspace(Path(row["path"]))
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            if name not in ws.list_branches():
+                raise ProjectError(f"no such branch: {name}")
+            db.update_project(self.conn, project_id, base_branch=name)
+        return {"base_branch": name}
 
     async def merge_to_base(self, project_id: int) -> dict:
         """Merge a project's chat branch into its base branch (locally)."""
@@ -142,7 +168,7 @@ class ProjectManager:
             ws.ensure_repo()
             if not ws.branch_exists(branch):
                 raise ProjectError("no work to merge yet — start a chat first")
-            base = ws.default_branch()
+            base = self._base_branch(ws, project_id)
             if base == branch:
                 raise ProjectError("the chat branch is the base branch; nothing to merge")
             merged = ws.merge(base, branch, message=f"Merge {branch} into {base}")
@@ -155,7 +181,7 @@ class ProjectManager:
         ws = session.workspace
         async with self.lock(project_id):
             ws.ensure_repo()
-            base = ws.default_branch()
+            base = self._base_branch(ws, project_id)
             commit = ws.pull(base)
         return {"base": base, "commit": commit}
 
@@ -165,7 +191,7 @@ class ProjectManager:
         ws = session.workspace
         async with self.lock(project_id):
             ws.ensure_repo()
-            base = ws.default_branch()
+            base = self._base_branch(ws, project_id)
             commit = ws.push(base)
         return {"base": base, "commit": commit}
 

@@ -96,6 +96,53 @@ def test_merge_without_work_errors(tmp_path):
         asyncio.run(pm.merge_to_base(pid))
 
 
+def test_set_base_branch_validates_and_persists(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    # A real extra branch in the clone to target.
+    subprocess.run(["git", "-C", str(labs / "src"), "branch", "release"], check=True)
+
+    result = asyncio.run(pm.set_base_branch(pid, "release"))
+
+    assert result["base_branch"] == "release"
+    assert db.get_project(conn, pid)["base_branch"] == "release"
+
+
+def test_set_base_branch_rejects_unknown(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, _labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    with pytest.raises(ProjectError, match="no such branch"):
+        asyncio.run(pm.set_base_branch(pid, "nope"))
+
+
+def test_merge_uses_configured_base(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "feature.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, _conn, labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+    subprocess.run(["git", "-C", str(labs / "src"), "branch", "release"], check=True)
+    asyncio.run(pm.set_base_branch(pid, "release"))
+    asyncio.run(pm.run_turn(pid, "add feature"))
+
+    result = asyncio.run(pm.merge_to_base(pid))
+
+    assert result["base"] == "release"  # configured base, not the repo default
+    clone = labs / "src"
+    got = subprocess.run(
+        ["git", "-C", str(clone), "cat-file", "-e", "release:feature.txt"]
+    ).returncode
+    assert got == 0
+
+
 def test_run_turn_persists_messages_and_branch(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)
