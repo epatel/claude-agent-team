@@ -47,6 +47,7 @@ class LabSession:
         session_id: str | None = None,
         branch_started: bool = False,
         run_task: RunTask = _run_task,
+        client_registry=None,
     ) -> None:
         self.workspace = Workspace(Path(repo_path))
         self.config = config
@@ -55,6 +56,9 @@ class LabSession:
         # (``None`` keeps the old behaviour of cutting from current HEAD).
         self.base_branch = base_branch
         self._run_task = run_task
+        # Connected platform clients (cards/extension-clients.md) — exposed to
+        # the agent as the mcp__lab toolset when present.
+        self._client_registry = client_registry
         # ``branch_started`` means the branch already exists (restored across a
         # restart) — check it out rather than create it on the first turn.
         self._started = branch_started
@@ -84,6 +88,8 @@ class LabSession:
             extra["on_event"] = on_event
         if self.config.extensions:
             extra["extensions"] = self.config.extensions
+        if self._client_registry is not None:
+            extra["client_registry"] = self._client_registry
 
         result = await self._run_task(
             message,

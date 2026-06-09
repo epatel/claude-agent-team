@@ -1,23 +1,26 @@
 # control-transports
 
-Decision: WebSocket for the chat/UI control surface; HTTP+SSE for extension-client MCP servers.
+Decision: WebSocket everywhere — the chat/UI control surface and platform clients both hold a WS to the lab. (HTTP+SSE for extension MCP servers retired 2026-06-10.)
 
 ## Decision
 
 - **Chat / UI ↔ lab: WebSocket.** `dev-lab serve` hosts a WebSocket control
   surface (`--host`/`--port`, default `ws://127.0.0.1:8765`). Clients submit
   instructions and receive a live, bidirectional event stream.
-- **Extension MCP servers: HTTP+SSE.** Extension clients expose their MCP servers
-  over the HTTP+SSE transport; the lab's agent connects to them as remote tools.
+- **Platform clients ↔ lab: WebSocket, dialed by the client.** Clients connect
+  outbound to the web app's `/ws/client`, announce capabilities, and receive
+  task dispatch / send results + sync traffic over the same socket.
+  *(Replaced the original HTTP+SSE MCP transport on 2026-06-10 — see
+  cards/extension-clients.md for why the connection reversed.)*
 
 ## Why
 
 - **WebSocket for chat/UI** — full duplex over one long-lived connection fits an
   interactive control surface that both sends commands and streams output (agent
   text + job lifecycle) with low latency.
-- **HTTP+SSE for MCP** — a standard MCP transport that works cleanly across hosts
-  and through proxies/firewalls, and needs no persistent client→server socket
-  from the lab to each extension.
+- **WebSocket for platform clients** — the persistent connection *is* the
+  presence/registry signal, and outbound-only fits NAT-ed client machines; only
+  the Pi needs to be reachable.
 
 ## How (control surface)
 

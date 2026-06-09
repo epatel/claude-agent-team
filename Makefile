@@ -26,9 +26,12 @@ setup:
 			&& .venv/bin/python -m pip install -e ".[dev]" ) || exit 1; \
 	done
 	@# Platform clients build on the sibling scaffold; a pyproject can't express
-	@# a relative-path dep, so install it into each client's venv here.
+	@# a relative-path dep, so install it into each client's venv here. The lab
+	@# needs it too (manifest sync source side, dev_lab/clients.py).
 	@( cd extensions/macos-build-test \
 		&& .venv/bin/python -m pip install --quiet -e ../platform-client )
+	@( cd dev-lab \
+		&& .venv/bin/python -m pip install --quiet -e ../extensions/platform-client )
 
 test:
 	@for c in $(COMPONENTS); do \

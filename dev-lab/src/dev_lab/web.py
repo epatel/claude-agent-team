@@ -18,6 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
 from . import auth, db
+from .clients import ClientRegistry
 from .config import KNOWN_MODELS, Config
 from .events import EventBus
 from .projects import ProjectError, ProjectManager
@@ -77,8 +78,10 @@ def build_app(
 ) -> FastAPI:
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax")
-    pm = ProjectManager(labs_dir=labs_dir, config=config, conn=conn)
     bus = bus or EventBus()
+    registry = ClientRegistry()
+    app.state.registry = registry  # reachable from tests
+    pm = ProjectManager(labs_dir=labs_dir, config=config, conn=conn, client_registry=registry)
     pm.discover()
 
     def current_user(request: Request) -> sqlite3.Row:
@@ -226,6 +229,11 @@ def build_app(
         # The selectable models plus the lab default (used when a project has no
         # override) so the console can pre-select it.
         return {"models": KNOWN_MODELS, "default": config.model}
+
+    @app.get("/api/clients")
+    async def list_clients(request: Request) -> list[dict]:
+        current_user(request)
+        return registry.list()
 
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
@@ -416,6 +424,45 @@ def build_app(
                 pass
             finally:
                 pump.cancel()
+
+    @app.websocket("/ws/client")
+    async def ws_client(websocket: WebSocket) -> None:
+        """Platform clients dial in here (cards/extension-clients.md).
+
+        First frame must be a ``hello`` (with the shared token when one is
+        configured); after that the registry owns the message routing.
+        """
+        await websocket.accept()
+        try:
+            hello = json.loads(await websocket.receive_text())
+        except (WebSocketDisconnect, ValueError):
+            return
+        if hello.get("type") != "hello" or (
+            config.client_token and hello.get("token") != config.client_token
+        ):
+            await websocket.close(code=1008)
+            return
+
+        async def send(message: dict) -> None:
+            await websocket.send_text(json.dumps(message))
+
+        name = registry.register(
+            name=str(hello.get("name") or "client"),
+            platform=str(hello.get("platform") or "unknown"),
+            capabilities=list(hello.get("capabilities") or []),
+            send=send,
+        )
+        await send({"type": "hello_ok", "name": name})
+        await bus.publish({"type": "clients_changed"})
+        try:
+            while True:
+                msg = json.loads(await websocket.receive_text())
+                await registry.handle_message(name, msg)
+        except (WebSocketDisconnect, ValueError):
+            pass
+        finally:
+            registry.unregister(name)
+            await bus.publish({"type": "clients_changed"})
 
     if static_dir is not None and Path(static_dir).is_dir():
         app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")

@@ -49,7 +49,11 @@ KNOWN_MODEL_IDS = frozenset(m["id"] for m in KNOWN_MODELS)
 class Config:
     model: str = "claude-opus-4-8"
     # name -> MCP SSE URL of an extension client (e.g. macos build/test).
+    # Superseded by reversed-connection platform clients; kept while it works.
     extensions: dict[str, str] = field(default_factory=dict)
+    # Shared secret platform clients must present in their hello (None = open;
+    # fine on a trusted LAN, set it before exposing the lab off-host).
+    client_token: str | None = None
 
 
 def _parse_extensions(raw: str | None) -> dict[str, str]:
@@ -85,4 +89,5 @@ def load_config() -> Config:
     return Config(
         model=os.environ.get("MODEL", "claude-opus-4-8"),
         extensions=_parse_extensions(os.environ.get("EXTENSIONS")),
+        client_token=os.environ.get("CLIENT_TOKEN") or None,
     )

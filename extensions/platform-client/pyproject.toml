@@ -9,10 +9,14 @@ description = "Shared scaffold for platform clients: the capability-independent 
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0,<2",
+    "websockets>=12",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+platform-client = "platform_client.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

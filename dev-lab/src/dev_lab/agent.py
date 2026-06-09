@@ -7,9 +7,11 @@ commits, so the agent is told not to touch git.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -17,8 +19,13 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
     ToolUseBlock,
+    create_sdk_mcp_server,
     query,
+    tool,
 )
+
+if TYPE_CHECKING:
+    from .clients import ClientRegistry
 
 # File + search + shell, scoped to the workspace via ``cwd``.
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
@@ -45,6 +52,50 @@ class AgentResult:
     session_id: str | None = None
 
 
+def _client_tools(registry: ClientRegistry, project_root: Path) -> list:
+    """Lab-local SDK tools that route to connected platform clients.
+
+    This is the agent-facing side of the reversed-connection model
+    (cards/extension-clients.md): the agent sees typed MCP tools; the registry
+    handles the WebSocket dispatch and manifest sync underneath.
+    """
+    from .clients import ClientError
+
+    @tool(
+        "list_clients",
+        "List the platform clients currently connected to the lab — machines that "
+        "can run commands (build, test, …) on their platform. Each entry has a "
+        "name, a platform, and a capability list.",
+        {},
+    )
+    async def list_clients(args: dict) -> dict:
+        return {"content": [{"type": "text", "text": json.dumps(registry.list())}]}
+
+    @tool(
+        "run_on_client",
+        "Run a shell command on a connected platform client, inside a synced "
+        "mirror of this project's current working tree (uncommitted changes "
+        "included). Use list_clients first to see who is connected. Returns "
+        "ok/returncode/stdout/stderr plus the files the run changed on the "
+        "client. Use this to build or test on a platform the lab itself lacks.",
+        {"client": str, "command": str},
+    )
+    async def run_on_client(args: dict) -> dict:
+        try:
+            result = await registry.run(
+                str(args["client"]), project_root=project_root, command=str(args["command"])
+            )
+        except ClientError as exc:
+            return {"content": [{"type": "text", "text": f"error: {exc}"}], "is_error": True}
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    return [list_clients, run_on_client]
+
+
+def _clients_mcp_server(registry: ClientRegistry, project_root: Path):
+    return create_sdk_mcp_server("lab", tools=_client_tools(registry, project_root))
+
+
 def build_agent_options(
     *,
     cwd: str | Path,
@@ -52,18 +103,26 @@ def build_agent_options(
     max_turns: int = 40,
     effort: str = "high",
     extensions: dict[str, str] | None = None,
+    client_registry: ClientRegistry | None = None,
     resume: str | None = None,
 ) -> ClaudeAgentOptions:
-    """Build the SDK options, wiring any extension MCP servers (HTTP+SSE) as tools.
+    """Build the SDK options, wiring remote capabilities as MCP tools.
 
-    ``resume`` (a prior session id) continues that conversation instead of starting
-    fresh — used by interactive chat sessions so follow-ups keep context.
+    ``client_registry`` (connected platform clients) becomes the in-process
+    ``mcp__lab`` toolset (`list_clients` / `run_on_client`, bound to ``cwd`` as
+    the sync source). ``extensions`` is the legacy SSE wiring, kept while it
+    works. ``resume`` (a prior session id) continues that conversation instead
+    of starting fresh — used by interactive chat sessions so follow-ups keep
+    context.
     """
     allowed = list(DEFAULT_TOOLS)
     mcp_servers: dict[str, dict] = {}
     for name, url in (extensions or {}).items():
         mcp_servers[name] = {"type": "sse", "url": url}
         allowed.append(f"mcp__{name}")  # allow all tools from this extension server
+    if client_registry is not None:
+        mcp_servers["lab"] = _clients_mcp_server(client_registry, Path(cwd))
+        allowed.append("mcp__lab")
 
     return ClaudeAgentOptions(
         cwd=str(cwd),
@@ -86,6 +145,7 @@ async def run_task(
     max_turns: int = 40,
     effort: str = "high",
     extensions: dict[str, str] | None = None,
+    client_registry: ClientRegistry | None = None,
     resume: str | None = None,
     on_event: Callable[[dict], Awaitable[None]] | None = None,
 ) -> AgentResult:
@@ -99,7 +159,7 @@ async def run_task(
     """
     options = build_agent_options(
         cwd=cwd, model=model, max_turns=max_turns, effort=effort,
-        extensions=extensions, resume=resume,
+        extensions=extensions, client_registry=client_registry, resume=resume,
     )
 
     summary_parts: list[str] = []

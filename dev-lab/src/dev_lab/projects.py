@@ -67,11 +67,13 @@ class ProjectManager:
         config: Config,
         conn: sqlite3.Connection,
         run_task: RunTask = _run_task,
+        client_registry=None,
     ) -> None:
         self.labs_dir = Path(labs_dir)
         self.config = config
         self.conn = conn
         self._run_task = run_task
+        self._client_registry = client_registry
         self._sessions: dict[int, LabSession] = {}
         self._locks: dict[int, asyncio.Lock] = {}
         self.labs_dir.mkdir(parents=True, exist_ok=True)
@@ -219,6 +221,7 @@ class ProjectManager:
             session_id=row["last_session_id"],
             branch_started=bool(row["branch"]),
             run_task=self._run_task,
+            client_registry=self._client_registry,
         )
         self._sessions[project_id] = session
         return session

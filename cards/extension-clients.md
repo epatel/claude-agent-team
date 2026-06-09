@@ -1,75 +1,65 @@
 # extension-clients
 
-Capability providers on other machines — MCP servers that give the Pi powers it lacks, like building and testing on macOS. Working name for one of these: a **platform client** (terminology still settling; "extension" survives in the env var and directory name).
+**Platform clients** — capability providers on other machines that **dial in to the lab** over WebSocket, announce what they can do, and run commands in a synced mirror of a project's working tree. (Settled name: *platform client*; the directory is still `extensions/`.)
 
 ## Responsibility
 
-- Run an MCP server on a machine that has a capability the Pi doesn't (e.g. a
-  macOS host for macOS builds/tests, or any platform-specific toolchain).
-- Expose that capability as MCP tools the lab's agent can call.
-- Operate on the same code the lab produced by checking out the relevant commit
-  from GitHub (a code-synchronization concern).
-
-The first implementation, `extensions/macos-build-test`, is a FastMCP server
-(`macos-build-test serve --host --port`) exposing `run_tests` and `build` —
-each clones a repo, checks out a ref, runs a command, and returns
-`{ok, returncode, stdout, stderr}`. The lab is pointed at extensions via its
-`EXTENSIONS=name=url` env (the agent gets each as an `mcp__<name>` toolset).
-
-## Creating a new platform client
-
-The capability-independent parts live in the shared scaffold
-`extensions/platform-client` (package `platform_client`):
-
-- `run_in_checkout(repo, ref, command)` / `CommandResult` — clone a git ref
-  into a throwaway workspace, run a command there, return a bounded result.
-- `extension_cli(name, build_server, default_port=…)` — the standard
-  `<name> serve --host --port` entry point (SSE transport).
-
-A new client is a sibling package under `extensions/` with three small files:
-a `build_server(*, host, port) -> FastMCP` that registers its capability tools
-(that's the whole capability layer — write the tool docstrings carefully, they
-are the agent-facing contract), a one-line `__main__.py` via `extension_cli`,
-and a `pyproject.toml` depending on `mcp`. Then:
-
-1. add the package to `COMPONENTS` in the root `Makefile`, plus a
-   `pip install -e ../platform-client` line under `setup` (relative-path deps
-   aren't expressible in a pyproject);
-2. pick a unique default port (macos-build-test owns 8970);
-3. point the lab at it via `EXTENSIONS=name=url`.
-
-`extensions/macos-build-test` is the reference: after the scaffold extraction
-it is only its two tool definitions.
+- Connect outbound to the lab's web app (`/ws/client`), authenticate (optional
+  shared `CLIENT_TOKEN`), and announce `{name, platform, capabilities}`.
+- Stay connected: **presence is the registry** — the console and the agent see
+  exactly the clients that are online now.
+- Maintain a **per-project mirror** of the lab's working tree via manifest
+  sync, so the *uncommitted* mid-session state is testable without a GitHub
+  round-trip.
+- Execute dispatched commands in the mirror and report
+  `{ok, returncode, stdout, stderr}` **plus the files the run changed**.
 
 ## Flow
 
 ```mermaid
 sequenceDiagram
-    participant LAB as Dev lab (Pi)
-    participant EXT as Extension MCP server (macOS)
-    participant GH as GitHub
-    LAB->>GH: push branch
-    LAB->>EXT: tool call run_tests(ref=branch)
-    EXT->>GH: checkout that commit
-    EXT->>EXT: build / run tests locally
-    EXT-->>LAB: result (pass/fail, logs)
+    participant C as Platform client (macOS)
+    participant LAB as dev-lab (Pi)
+    participant A as Agent
+    C->>LAB: WS connect + hello {name, platform, capabilities}
+    LAB-->>LAB: registry: client online (console shows it)
+    A->>LAB: SDK tool run_on_client(client, command)
+    LAB->>C: task {id, project, command, manifest}
+    C->>LAB: need [stale/missing paths]
+    LAB->>C: file data (delta only)
+    C->>C: run command in warm mirror
+    C->>LAB: result {ok, output, changed files}
+    LAB-->>A: tool result
 ```
 
-## Key concerns
+## Key pieces
 
-- **MCP is the contract** — each capability is a tool with a typed schema; the
-  lab consumes it like any other tool. Lets us add machines without changing the
-  lab's core. Transport is **HTTP+SSE** (a settled transport decision; see the
-  index in CLAUDE.md).
-- **Code reaches extensions via git**, not file transfer — the extension checks
-  out the commit the lab pushed.
-- **Discovery/registration** is undecided — static config vs a registry (open
-  question in the plan).
-- **Reachability and auth** — extensions may be off the Pi's LAN; transport and
-  auth (e.g. VPN/Tailscale) are open questions in the plan.
-- Multiple extension clients are expected (different platforms/capabilities).
+- **Reversed connection** — clients are NAT-ed laptops that roam and sleep; the
+  Pi is the one stable address. Outbound-only from clients means no inbound
+  ports or per-client auth surface. The wire is a lab-owned JSON protocol over
+  WebSocket (see `platform_client/runtime.py` and `dev_lab/clients.py`).
+- **MCP stays at the agent boundary** — the agent sees `list_clients` /
+  `run_on_client` as lab-local SDK tools; it never speaks to clients directly.
+- **Manifest sync, not git** — the lab sends a content-hash manifest of the
+  project tree (default ignores: `.git`, `.venv`, `__pycache__`, …); the client
+  requests only changed files, deletes ones that vanished, and keeps the mirror
+  warm between runs. Identity of "what ran" is the manifest hash, not a sha.
+- **Changed-files report** — the client snapshots its mirror manifest before a
+  run and diffs after, so generated/modified files are visible per run.
+- **Shared scaffold** — `extensions/platform-client` (package
+  `platform_client`) owns manifest sync, the runtime, and the
+  `platform-client connect --lab <url>` CLI. A new client is configuration
+  (name + capabilities) more than code.
+
+## History
+
+v1 (M4, superseded 2026-06-10): clients were FastMCP servers over HTTP+SSE the
+lab dialed via `EXTENSIONS=name=url`; code transport was a fresh git clone per
+call. Reversed because reachability, discovery, and mid-session testability all
+pushed the same way. `extensions/macos-build-test` is the old-model reference
+until it's ported.
 
 ## Not covered here
 
-The rationale for choosing MCP, branch/commit conventions, and the agent that
-calls these tools live in their own entries — route via the index in CLAUDE.md.
+The MCP rationale (cards/mcp-for-extensions.md), branch/commit conventions
+(cards/repo-sync.md), and the agent loop (cards/dev-lab.md).

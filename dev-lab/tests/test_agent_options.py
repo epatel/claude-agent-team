@@ -1,4 +1,8 @@
-from dev_lab.agent import build_agent_options
+import asyncio
+import json
+
+from dev_lab.agent import _client_tools, build_agent_options
+from dev_lab.clients import ClientRegistry
 
 
 def test_options_without_extensions():
@@ -14,3 +18,66 @@ def test_options_with_extensions():
     )
     assert opts.mcp_servers["macos"] == {"type": "sse", "url": "http://h:8970/sse"}
     assert "mcp__macos" in opts.allowed_tools
+
+
+def test_options_with_client_registry_adds_lab_toolset(tmp_path):
+    opts = build_agent_options(cwd=tmp_path, model="m", client_registry=ClientRegistry())
+    assert opts.mcp_servers["lab"]["type"] == "sdk"
+    assert "mcp__lab" in opts.allowed_tools
+
+
+def _handlers(registry, root):
+    return {t.name: t.handler for t in _client_tools(registry, root)}
+
+
+def test_list_clients_tool_returns_registry_contents(tmp_path):
+    registry = ClientRegistry()
+
+    async def send(_):
+        pass
+
+    registry.register(
+        name="mac", platform="darwin", capabilities=[{"name": "run"}], send=send
+    )
+    out = asyncio.run(_handlers(registry, tmp_path)["list_clients"]({}))
+    listed = json.loads(out["content"][0]["text"])
+    assert listed[0]["name"] == "mac"
+    assert listed[0]["platform"] == "darwin"
+
+
+def test_run_on_client_tool_reports_unknown_client_as_error(tmp_path):
+    handlers = _handlers(ClientRegistry(), tmp_path)
+    out = asyncio.run(handlers["run_on_client"]({"client": "nope", "command": "true"}))
+    assert "error" in out["content"][0]["text"]
+    assert out["is_error"] is True
+
+
+def test_run_on_client_tool_returns_result_json(tmp_path):
+    (tmp_path / "a.py").write_text("x")
+    registry = ClientRegistry()
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    name = registry.register(name="mac", platform="darwin", capabilities=[], send=send)
+    handlers = _handlers(registry, tmp_path)
+
+    async def scenario():
+        call = asyncio.create_task(
+            handlers["run_on_client"]({"client": name, "command": "make test"})
+        )
+        await asyncio.sleep(0)
+        task_id = sent[0]["task_id"]
+        await registry.handle_message(name, {
+            "type": "result", "task_id": task_id,
+            "ok": True, "returncode": 0, "stdout": "passed", "stderr": "",
+            "changed": {"added": [], "modified": [], "deleted": []},
+        })
+        return await call
+
+    out = asyncio.run(scenario())
+    result = json.loads(out["content"][0]["text"])
+    assert result["ok"] is True
+    assert result["stdout"] == "passed"
+    assert result["manifest_hash"]

@@ -1,18 +1,32 @@
-"""Shared scaffold for platform clients (extension MCP servers).
+"""Shared scaffold + runtime for platform clients (cards/extension-clients.md).
 
 A platform client runs on a machine with a capability the lab lacks (e.g. a
-macOS host) and exposes it as MCP tools over HTTP+SSE (see
-cards/extension-clients.md). This package holds the capability-independent
-parts so a new client is only its tool definitions:
+macOS host), **dials the lab** over WebSocket, announces its capabilities, and
+runs commands in a manifest-synced mirror of a project's working tree:
 
-- ``run_in_checkout`` / ``CommandResult`` — clone a git ref into a throwaway
-  workspace, run a command there, return a bounded result.
-- ``extension_cli`` — the standard ``<name> serve --host --port`` entry point.
+- ``manifest`` — content-hash tree manifests, deltas, and the changed-files
+  report (the code-transport primitive; the lab uses it too).
+- ``ClientRuntime`` / ``connect_forever`` — the dial-in runtime behind the
+  ``platform-client connect`` CLI.
+
+Legacy (old MCP-over-SSE model, kept while macos-build-test still uses them):
+``run_in_checkout`` / ``CommandResult`` and ``extension_cli``.
 """
 
+from . import manifest
 from .cli import extension_cli
+from .runtime import ClientRuntime, connect_forever, connect_once
 from .workspace import CommandResult, run_in_checkout
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-__all__ = ["CommandResult", "extension_cli", "run_in_checkout", "__version__"]
+__all__ = [
+    "ClientRuntime",
+    "CommandResult",
+    "connect_forever",
+    "connect_once",
+    "extension_cli",
+    "manifest",
+    "run_in_checkout",
+    "__version__",
+]

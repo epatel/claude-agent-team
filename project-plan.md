@@ -27,26 +27,28 @@ commits that an extension client has built and tested."
 - [x] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: agent, status: done 2026-06-08, live-verified)
 - [x] M2 — Run uninterrupted on Pi 5: systemd service, restart-on-crash, durable job queue (owner: agent, status: done 2026-06-08; verified locally, not yet on real Pi hardware)
 - [x] M3 — Chat client: control surface to send instructions, stream agent output (owner: agent, status: done 2026-06-08, live-verified)
-- [x] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: agent, status: done 2026-06-08, live-verified end-to-end)
-- [ ] M5 — Hardening: cross-component auth, reconnection, observability, multi-extension discovery (owner: unassigned, status: not started)
+- [x] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: agent, status: done 2026-06-08, live-verified end-to-end; superseded by M6's reversed-connection model)
+- [ ] M6 — Platform clients v1 (reversed connection): clients dial the lab over WebSocket, announce capabilities, maintain a manifest-synced mirror of a project tree, run commands there, report results + changed files; agent reaches them via lab-local SDK tools; console shows connected clients (owner: agent, status: in progress 2026-06-10)
+- [ ] M5 — Hardening: cross-component auth (console WS, client WS), reconnection, observability (owner: unassigned, status: not started)
 
 ## Decisions
 
 Each line is a settled choice no agent should reopen without flagging here.
 
 - 2026-06-08 — Dev lab uses the self-hosted **Claude Agent SDK for Python**, not Managed Agents — must run uninterrupted on the owned Pi 5 with local compute.
-- 2026-06-08 — Extension clients expose their capabilities as **MCP servers**; the lab's agent connects to them as tools (chosen over custom RPC and job-queue).
-- 2026-06-08 — The **GitHub repo is both source of truth and the synchronization substrate** between the lab and extension clients (the lab pushes a branch; extensions check out that commit to build/test).
+- ~~2026-06-08 — Extension clients expose their capabilities as **MCP servers**; the lab's agent connects to them as tools.~~ **Superseded 2026-06-10** by the reversed-connection decision below; MCP survives at the *agent* boundary (lab-local SDK tools), not as the client wire.
+- 2026-06-08 — The **GitHub repo is the source of truth** between the lab and other machines. *(Amended 2026-06-10: it is no longer the code-transport for platform clients — they receive the working tree via manifest sync — but remains source of truth for landing work.)*
+- 2026-06-10 — **Platform clients dial the lab** (outbound WebSocket to `dev-lab web`), announce a capability list on connect, and stay connected: presence = registry, shown per project in the console. Code reaches a client via **manifest sync** (content-hash manifest, delta file transfer over the same socket) into a **maintained per-project mirror**, so the *uncommitted working tree* can be tested without a GitHub round-trip; after a run the client reports the result plus changed files. The agent reaches clients through **lab-local SDK tools** (`list_clients`, `run_on_client`) — MCP remains the agent-facing contract; the client wire is a lab-owned WS protocol. Rationale: reachability (clients are NAT-ed laptops; the Pi is the one stable address), discovery for free, and mid-session testability. Replaces the SSE `EXTENSIONS=name=url` wiring.
 - 2026-06-08 — **Python + per-component venvs** for the toolchain.
 - 2026-06-08 — Default model is **`claude-opus-4-8`** with adaptive thinking.
-- 2026-06-10 — Extension clients share a scaffold: **`extensions/platform-client`** owns the capability-independent parts (throwaway-checkout runner, `serve` CLI); each client is only its FastMCP tool definitions. Component naming is settling on **"platform client"** (the old "extension client" term mislabels what is an MCP *server*; "extension" survives in `EXTENSIONS` env and `extensions/` dir).
+- 2026-06-10 — Platform clients share a scaffold: **`extensions/platform-client`** owns the capability-independent parts; each client is only its capability layer. Component naming settled on **"platform client"**. *(Amended same day by the reversed-connection decision: the scaffold's contents shift from throwaway-checkout runner + FastMCP serving to manifest sync + the dial-the-lab runtime.)*
 - 2026-06-09 — Model is **selectable per project** in the web console (chosen at clone time, switchable mid-chat like the CLI's `/model`): stored on the project row (NULL = lab default), the switch drops the cached session so the next turn rebuilds with the new model while the resumed conversation continues. The lab default (`MODEL` env, else `claude-opus-4-8`) is the fallback; selectable ids live in `config.KNOWN_MODELS`.
 - 2026-06-08 — The lab authenticates via a **Claude subscription** through a one-time interactive `claude` login (credentials persist in `~/.claude` and auto-refresh), **not** an API key or a token in `.env`; `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` must stay unset (they override it and bill the API).
 - 2026-06-08 — Agent SDK package is **`claude-agent-sdk`** (0.2.x, Python). The agent runs with `permission_mode=bypassPermissions` and a workspace-scoped tool set (Read/Write/Edit/Glob/Grep/Bash); the **lab owns commits**, the agent is told not to touch git. Runtime requires the Claude Code CLI on the host.
 - 2026-06-08 — M2 instruction intake is a **file-backed job queue** (`pending/running/done/failed` dirs); the supervisor (`dev-lab serve`) drains it one job at a time, survives per-job errors, and requeues in-flight jobs after a crash. Runs as a `systemd` unit (`deploy/dev-lab.service`, `Restart=always`, start-on-boot). The future chat client enqueues into this same queue.
-- 2026-06-08 — The first extension client (`extensions/macos-build-test`) is a **FastMCP server over SSE** exposing `run_tests` / `build` tools (clone a ref → run a command → return result). The lab wires extensions in via an `EXTENSIONS=name=url,...` env list; the agent gets each as an `mcp__<name>` toolset.
+- ~~2026-06-08 — The first extension client (`extensions/macos-build-test`) is a **FastMCP server over SSE** exposing `run_tests` / `build` tools; the lab wires extensions in via `EXTENSIONS=name=url,...`.~~ **Superseded 2026-06-10** by the reversed-connection model (clients dial the lab; `EXTENSIONS` wiring retired).
 - 2026-06-08 — The chat client has an **interactive session mode** (`chat-client chat`): each connection gets a persistent `chat/<ts>` branch and the agent conversation is **resumed** across turns (SDK `resume`), so follow-ups build on prior work instead of each message making a fresh branch. `submit` stays for independent fire-and-forget jobs. A single lab lock serializes all agent runs (sessions + queue) over the one working clone. Live activity streams `agent_message` + `tool_use` events.
-- 2026-06-08 — Control transports: **chat/UI ↔ lab over WebSocket** (`dev-lab serve` hosts a WebSocket control surface; clients submit instructions and receive a live event stream via an in-process event bus). **Extension MCP servers use HTTP+SSE.**
+- 2026-06-08 — Control transports: **chat/UI ↔ lab over WebSocket** (`dev-lab serve` hosts a WebSocket control surface; clients submit instructions and receive a live event stream via an in-process event bus). *(Amended 2026-06-10: platform clients also use WebSocket — dialing in to the lab; the extensions' HTTP+SSE is retired.)*
 - 2026-06-08 — Durable runtime data (run history, and future chat logs) is stored in **SQLite with a migration runner** (`dev_lab/db.py`, append-only migrations keyed on `PRAGMA user_version`) — not ad-hoc files. The job **queue** stays a filesystem work-state by design (atomic-rename claiming); SQLite is for records/logs/history.
 - 2026-06-08 — **v2 redesign — web console.** The primary surface is now a **FastAPI web app** (`dev-lab web`): a login page (multi-user accounts, scrypt + signed session cookie), a project list, and per-project chat in the browser. The CLI `serve`/`chat-client`/queue remain as the older single-project surface (secondary).
 - 2026-06-08 — **Landing work back to the base branch.** A chat session commits to a `chat/<ts>` branch; a **merge → base** action (`POST /api/projects/{id}/merge`, button in the web UI) merges it into the project's default branch locally (aborts on conflict, restores the chat branch). This closes the "can create a branch but can't merge it back" gap. Pushing to the remote is still a separate open item.
@@ -128,17 +130,29 @@ the extension log (`Processing request of type CallToolRequest`), an
 absolute-path side-effect file written by the test command, and the unique
 stdout token flowing back into the chat report.
 
-Next: **M5** — hardening: auth on the WebSocket control surface and the extension
-SSE endpoints, reconnection, observability, multi-extension discovery.
+**M6 platform clients v1 (2026-06-10):** the reversed-connection model is
+implemented and end-to-end tested (real uvicorn + real websocket in
+`dev-lab/tests/test_clients_live.py`). `platform_client.manifest` (content-hash
+manifests, deltas, changed-report), `platform_client.runtime` +
+`platform-client connect` CLI (dial, hello, sync mirror, run, report, reconnect
+loop), `dev_lab/clients.py` (`ClientRegistry`: presence, task dispatch, file
+serving) + `/ws/client` and `/api/clients` in web.py (optional `CLIENT_TOKEN`),
+agent tools `mcp__lab` `list_clients`/`run_on_client` (in-process SDK MCP
+server bound to the project tree), and a connected-clients section in the
+console sidebar. Not yet live-verified against a real second machine.
+`extensions/macos-build-test` still runs the old SSE model until ported.
+
+Next: **M6 live verification** (run `platform-client connect` from the macOS
+host against the lab, drive `run_on_client` from a chat), then **M5** —
+hardening: auth on the WebSocket surfaces, observability.
 
 ## Open questions
 
 - The WebSocket control surface is currently unauthenticated and loopback-bound — add auth (token / Tailscale / mTLS) before exposing it off-host (M5 hardening).
-- Network topology: are lab and extension clients on the same LAN, or reached over a VPN/Tailscale for off-LAN extensions?
-- Auth model across components (lab → extension MCP, chat → lab) — mTLS, bearer tokens, Tailscale ACLs?
-- Extension discovery is currently static config (`EXTENSIONS` env, `name=url`); a registry / auto-discovery is open if the number of extensions grows.
+- Network topology: clients now dial the lab, so only the **Pi** must be reachable — off-LAN clients need a route to it (port-forward vs Tailscale on the Pi).
+- Auth model across components (client → lab WS, chat → lab) — v1 has an optional shared `CLIENT_TOKEN`; mTLS / Tailscale ACLs are M5.
+- Manifest sync caps per-file size and hashes the whole tree per task — fine for small repos; revisit (mtime cache, chunked transfer) if trees grow.
 - Multiple chat clients share one working clone — only one session/job runs at a time (lab lock), and concurrent sessions on different branches aren't isolated. Multi-session concurrency would need git worktrees or per-session clones.
-- Auth between the lab and extension MCP servers (the SSE endpoint is currently unauthenticated) — part of M5 hardening alongside the WebSocket control surface.
 - Whether to use the SDK's session resume (`resume`/`session_id`) so a single long task survives a mid-run crash — currently only the job queue is durable (a crashed job is requeued and re-run from scratch, on a fresh branch).
 - Secrets management on the Pi for the GitHub token (Claude auth is the one-time `claude` login stored in `~/.claude`, no secret in `.env`).
 - The systemd service must run as the user who ran `claude` login (credentials are user-scoped in `~/.claude`), or set `CLAUDE_CONFIG_DIR` to that user's config dir.

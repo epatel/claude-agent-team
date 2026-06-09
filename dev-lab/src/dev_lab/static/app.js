@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, isSuper: false, needsInvite: true, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "", models: [], defaultModel: null };
+const state = { user: null, isSuper: false, needsInvite: true, projects: [], clients: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "", models: [], defaultModel: null };
 
 mermaid.initialize({
   startOnLoad: false,
@@ -144,7 +144,35 @@ async function showApp() {
     : "Signed in as " + state.user;
   await loadModels();
   await loadProjects();
+  await loadClients();
   connectWs();
+}
+
+/* ---------- platform clients (connected capability providers) ---------- */
+async function loadClients() {
+  try {
+    state.clients = await api("/api/clients");
+  } catch {
+    state.clients = [];
+  }
+  renderClients();
+}
+
+function renderClients() {
+  const box = $("#clients-box");
+  const ul = $("#client-list");
+  ul.innerHTML = "";
+  box.hidden = state.clients.length === 0;
+  for (const c of state.clients) {
+    const caps = (c.capabilities || []).map((x) => x.name).join(", ");
+    const li = document.createElement("li");
+    li.className = "client";
+    li.title = `${c.platform}${caps ? " — " + caps : ""}`;
+    li.innerHTML =
+      `<span class="client-dot"></span><span class="cname">${escapeHtml(c.name)}</span>` +
+      `<span class="client-platform">${escapeHtml(c.platform)}</span>`;
+    ul.appendChild(li);
+  }
 }
 
 /* ---------- models ---------- */
@@ -623,6 +651,7 @@ function handleEvent(e) {
     }
   }
   if (e.type === "projects_changed") { loadProjects(); return; }
+  if (e.type === "clients_changed") { loadClients(); return; }
   if (e.type === "state") { state.projects = e.projects; renderProjects(); return; }
   // transcript only reflects the active project
   if (e.project_id != null && e.project_id !== state.activeId) return;

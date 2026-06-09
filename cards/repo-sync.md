@@ -1,40 +1,36 @@
 # repo-sync
 
-GitHub as both source of truth and the substrate that moves code between the lab and extension clients.
+GitHub as the source of truth for the lab's projects: clone, branch, land, push. *(Amended 2026-06-10: GitHub is no longer the code-transport to platform clients — they receive the working tree via manifest sync over their lab connection, so uncommitted state is testable. See cards/extension-clients.md.)*
 
 ## Responsibility
 
 - Hold the canonical repository on GitHub.
 - Let the lab work in a local clone, commit, and push branches.
-- Let extension clients fetch the exact commit the lab produced so they build and
-  test the same code.
 
-## Why git is the substrate
+## Why git is the substrate (for landing work)
 
-The lab writes code on the Pi; the macOS extension builds it. Rather than stream
-files between machines, both converge on commits: the lab pushes, the extension
-checks out. A commit SHA is an unambiguous "build exactly this" handle.
+The lab works on branches in a local clone and converges with the world through
+commits: reviewable, reversible, unambiguous. For *moving code to platform
+clients* this was originally also the transport (push → client checks out the
+SHA); that path is now manifest sync because the thing worth testing
+mid-session is the uncommitted tree, and a GitHub round-trip per test run was
+pure overhead.
 
 ```mermaid
 flowchart LR
     LAB[Dev lab\nlocal clone] -->|commit + push branch| GH[(GitHub)]
-    GH -->|fetch + checkout SHA| EXT1[Extension: macOS]
-    GH -->|fetch + checkout SHA| EXT2[Extension: other]
+    LAB -->|manifest sync, WS| EXT1[Platform client: macOS]
 ```
 
 ## Key concerns
 
 - **Work on branches** — the autonomous agent should never force-push shared
   history; isolate work so it's reviewable and reversible.
-- **Pass the commit SHA, not "latest"** — when the lab asks an extension to
-  build/test, it should reference the precise ref it pushed to avoid races.
 - **Credentials** — GitHub auth is **per project**: each project carries its own
   token (entered in the web console, stored on its `projects` row and injected
   into that clone's `origin`), used to clone and push private repos; public repos
-  need none. There is no global `GITHUB_TOKEN`. Extensions need read access to
-  fetch. Secret handling is a deployment concern.
-- **Caching** — extensions can keep a warm clone and fetch incrementally rather
-  than re-cloning each run.
+  need none. There is no global `GITHUB_TOKEN`. Platform clients no longer need
+  GitHub access at all — code reaches them via manifest sync from the lab.
 
 ## Not covered here
 
