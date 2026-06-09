@@ -242,6 +242,17 @@ input:focus, textarea:focus {
   animation: spin .65s linear infinite;
 }
 .merge-btn { font-size: 11px; padding: 6px 12px; }
+/* Browse is the one read-only viewer among the git action buttons — accent
+   outline + folder icon set it apart from the ghost-styled write actions. */
+.browse-files-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; padding: 6px 12px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+.browse-files-btn:hover { background: rgba(190, 242, 100, .08); border-color: var(--accent); filter: none; }
+.browse-files-btn svg { flex: none; }
 .head-right { display: flex; align-items: center; gap: 12px; }
 .model-picker[hidden] { display: none; }
 .model-picker { display: flex; align-items: center; gap: 6px; color: var(--muted); }
