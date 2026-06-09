@@ -18,7 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
 from . import auth, db
-from .config import Config
+from .config import KNOWN_MODELS, Config
 from .events import EventBus
 from .projects import ProjectError, ProjectManager
 from .workspace import WorkspaceError
@@ -32,6 +32,8 @@ def _project_dict(pm: ProjectManager, row: sqlite3.Row) -> dict:
         "base_branch": pm.effective_base(row),
         # Whether a GitHub token is configured — never the token itself.
         "has_token": bool(row["github_token"]),
+        # The model this project will run with (its override, else the lab default).
+        "model": pm.effective_model(row),
     }
 
 
@@ -218,6 +220,13 @@ def build_app(
         code = auth.create_invite(conn, me_row["id"])
         return {"code": code}
 
+    @app.get("/api/models")
+    async def list_models(request: Request) -> dict:
+        current_user(request)
+        # The selectable models plus the lab default (used when a project has no
+        # override) so the console can pre-select it.
+        return {"models": KNOWN_MODELS, "default": config.model}
+
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
         current_user(request)
@@ -229,8 +238,9 @@ def build_app(
         data = await request.json()
         remote_url = (data.get("remote_url") or "").strip()
         github_token = (data.get("github_token") or "").strip()
+        model = (data.get("model") or "").strip()
         try:
-            row = pm.create(remote_url, github_token=github_token)
+            row = pm.create(remote_url, github_token=github_token, model=model)
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
@@ -244,6 +254,18 @@ def build_app(
         try:
             result = await pm.set_token(project_id, token)
         except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
+    @app.post("/api/projects/{project_id}/model")
+    async def set_model(project_id: int, request: Request) -> dict:
+        current_user(request)
+        data = await request.json()
+        model = (data.get("model") or "").strip()
+        try:
+            result = await pm.set_model(project_id, model)
+        except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
         return result

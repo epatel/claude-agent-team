@@ -30,6 +30,11 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
 - **Multi-project = isolation.** Each project is its own clone → its own cwd →
   its own Claude session and branch. Concurrent chat across projects is fine;
   turns within a project serialize on a per-project lock.
+- **Model per project.** Picked in the new-project form (`GET /api/models` lists
+  the choices + lab default) and switchable mid-chat from the header dropdown
+  (`POST /api/projects/{id}/model`) — the lab's `/model`. Stored on the project
+  row (NULL = lab default); the switch drops the cached session so the next turn
+  rebuilds with the new model while the resumed conversation continues.
 - **Landing work.** A chat commits to its `chat/<ts>` branch; **merge → base**
   (the header button / `POST /api/projects/{id}/merge`) merges that branch into
   the project's default branch (`main`/`master`) locally, aborting on conflict,

@@ -31,6 +31,20 @@ _ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 _CONFLICTING = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 
 
+# Models offered in the web console. ``id`` is the Anthropic model id passed
+# straight to the Agent SDK; ``label`` is what the dropdown shows. A project with
+# no model of its own falls back to ``Config.model`` (the lab default).
+# Maintained by hand against Anthropic's published lineup — how to check and
+# update this list is documented in cards/known-models.md.
+KNOWN_MODELS: list[dict[str, str]] = [
+    {"id": "claude-fable-5", "label": "Fable 5"},
+    {"id": "claude-opus-4-8", "label": "Opus 4.8"},
+    {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6"},
+    {"id": "claude-haiku-4-5-20251001", "label": "Haiku 4.5"},
+]
+KNOWN_MODEL_IDS = frozenset(m["id"] for m in KNOWN_MODELS)
+
+
 @dataclass(frozen=True)
 class Config:
     model: str = "claude-opus-4-8"

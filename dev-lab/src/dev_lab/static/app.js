@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (s) => document.querySelector(s);
-const state = { user: null, isSuper: false, needsInvite: true, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "" };
+const state = { user: null, isSuper: false, needsInvite: true, projects: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "", models: [], defaultModel: null };
 
 mermaid.initialize({
   startOnLoad: false,
@@ -142,8 +142,45 @@ async function showApp() {
   who.title = state.isSuper
     ? "You're a super-user (★). Click to open the admin panel and manage users & invites."
     : "Signed in as " + state.user;
+  await loadModels();
   await loadProjects();
   connectWs();
+}
+
+/* ---------- models ---------- */
+async function loadModels() {
+  try {
+    const r = await api("/api/models");
+    state.models = r.models || [];
+    state.defaultModel = r.default || null;
+  } catch {
+    state.models = [];
+    state.defaultModel = null;
+  }
+  fillModelSelect($("#np-model"), state.defaultModel);
+}
+
+// Populate a <select> with the known models, pre-selecting ``selected``. If that
+// id isn't in the known list (e.g. a custom MODEL env on the lab), it's added so
+// the current choice is always representable rather than silently lost.
+function fillModelSelect(sel, selected) {
+  if (!sel) return;
+  const ids = new Set(state.models.map((m) => m.id));
+  const opts = state.models.slice();
+  if (selected && !ids.has(selected)) opts.unshift({ id: selected, label: selected });
+  sel.innerHTML = "";
+  for (const m of opts) {
+    const o = document.createElement("option");
+    o.value = m.id;
+    o.textContent = m.label;
+    if (m.id === selected) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+function modelLabel(id) {
+  const m = state.models.find((x) => x.id === id);
+  return m ? m.label : id;
 }
 
 /* ---------- projects ---------- */
@@ -178,15 +215,17 @@ $("#new-project-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const remote_url = $("#np-url").value.trim();
   const github_token = $("#np-token").value.trim();
+  const model = $("#np-model").value;
   $("#np-error").textContent = "";
   withButton($("#np-submit"), "cloning", async () => {
     try {
       await api("/api/projects", {
         method: "POST",
-        body: JSON.stringify({ remote_url, github_token }),
+        body: JSON.stringify({ remote_url, github_token, model }),
       });
       $("#np-url").value = "";
       $("#np-token").value = "";
+      fillModelSelect($("#np-model"), state.defaultModel);
       $("#new-project-form").hidden = true;
       $("#new-project-btn").hidden = false;
       await loadProjects();
@@ -212,6 +251,7 @@ async function openProject(id) {
   $("#merge-btn").hidden = false;
   $("#head-tabs").hidden = false;
   renderToken(p);
+  renderModel(p);
   setTab("chat");
   const t = $("#transcript");
   t.innerHTML = "";
@@ -324,6 +364,48 @@ baseSelect.addEventListener("change", async () => {
     delete baseSelect.dataset.busy;
     baseSelect.disabled = false;
     basePicker.classList.remove("is-loading");
+  }
+});
+
+/* ---------- per-project model (switchable mid-session, like the CLI) ---------- */
+const modelSelect = $("#model-select");
+const modelPicker = $("#model-picker");
+
+function renderModel(p) {
+  fillModelSelect(modelSelect, p.model || state.defaultModel);
+  modelSelect.dataset.current = p.model || state.defaultModel || "";
+  modelPicker.hidden = state.models.length === 0 && !p.model;
+}
+
+// Same no-double-submit guard as the base-branch <select> (cards/no-double-submit.md):
+// busy flag blocks re-entry, the control is disabled, a spinner shows, and the
+// dropdown reverts on failure. The switch takes effect on the next turn — open()
+// rebuilds the (still-resumed) session with the new model.
+modelSelect.addEventListener("change", async () => {
+  if (state.activeId == null || modelSelect.dataset.busy === "1") return;
+  const id = state.activeId;
+  const model = modelSelect.value;
+  const previous = modelSelect.dataset.current || "";
+  if (model === previous) return;
+  modelSelect.dataset.busy = "1";
+  modelSelect.disabled = true;
+  modelPicker.classList.add("is-loading");
+  try {
+    const r = await api(`/api/projects/${id}/model`, {
+      method: "POST",
+      body: JSON.stringify({ model }),
+    });
+    modelSelect.dataset.current = r.model;
+    const p = state.projects.find((x) => x.id === id);
+    if (p) p.model = r.model;
+    systemLine(`✓ model set to ${modelLabel(r.model)} — applies to your next message`);
+  } catch (err) {
+    modelSelect.value = previous; // revert to the last good model
+    systemLine(`✗ set model failed: ${err.message}`, true);
+  } finally {
+    delete modelSelect.dataset.busy;
+    modelSelect.disabled = false;
+    modelPicker.classList.remove("is-loading");
   }
 });
 

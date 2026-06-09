@@ -51,6 +51,8 @@
         <input id="np-token" type="password" autocomplete="off"
           placeholder="github token"
           title="Needed for private repos and for pushing. Public, read-only clones don't need one." />
+        <select id="np-model" class="np-model"
+          title="Which Claude model this project's agent uses. You can change it per project later."></select>
         <div class="np-actions">
           <button type="submit" id="np-submit"
             title="Clone the repo at the URL above into a new project">clone</button>
@@ -79,6 +81,11 @@
             title="Repo actions: browse files, fetch/pull/push, merge, and set the base branch">repo</button>
         </nav>
         <div class="head-right">
+          <label id="model-picker" class="model-picker" hidden
+            title="Model for this project's agent. Switching takes effect on your next message; the conversation continues.">
+            <select id="model-select" class="model-select"
+              aria-label="model for this project"></select>
+          </label>
           <button id="clear-chat-btn" class="clear-chat-btn ghost" type="button" hidden
             title="Clear this chat's history and start a fresh agent context. Your code and branch are not affected.">clear chat</button>
           <span id="active-status" class="status"></span>

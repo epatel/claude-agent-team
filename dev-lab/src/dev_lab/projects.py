@@ -13,11 +13,12 @@ import asyncio
 import re
 import sqlite3
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from . import db
 from .agent import run_task as _run_task
-from .config import Config
+from .config import KNOWN_MODEL_IDS, Config
 from .session import LabSession, RunTask, TurnResult
 from .workspace import Workspace, WorkspaceError
 
@@ -102,19 +103,30 @@ class ProjectManager:
             n += 1
         return f"{base}_{n}"
 
-    def create(self, remote_url: str, github_token: str | None = None) -> sqlite3.Row:
+    def effective_model(self, row: sqlite3.Row) -> str:
+        """The model a project will run with: its own override, else the lab default."""
+        return row["model"] or self.config.model
+
+    def create(
+        self, remote_url: str, github_token: str | None = None, model: str | None = None
+    ) -> sqlite3.Row:
         """Clone ``remote_url`` into labs/<repo-name> and register it.
 
         ``github_token`` is this project's own GitHub credential (there is no
         global token): it authenticates the clone and is persisted on the
         project's ``origin`` and row so later push/pull/fetch reuse it. Omit it
-        for a public repo. The name is derived from the repo (``…/foo.git`` ->
-        ``foo``); a collision gets a ``_2`` / ``_3`` / … suffix.
+        for a public repo. ``model`` is an optional per-project model override
+        (one of ``KNOWN_MODEL_IDS``); omit it to use the lab default. The name is
+        derived from the repo (``…/foo.git`` -> ``foo``); a collision gets a
+        ``_2`` / ``_3`` / … suffix.
         """
         remote_url = _strip_credentials(remote_url.strip())
         if not remote_url:
             raise ProjectError("a git URL is required")
         token = (github_token or "").strip() or None
+        model = (model or "").strip() or None
+        if model is not None and model not in KNOWN_MODEL_IDS:
+            raise ProjectError(f"unknown model: {model}")
         name = self._unique_name(_derive_name(remote_url))
         dest = self.labs_dir / name
 
@@ -133,9 +145,33 @@ class ProjectManager:
         )
 
         pid = db.create_project(
-            self.conn, name=name, path=str(dest), remote_url=remote_url, github_token=token
+            self.conn,
+            name=name,
+            path=str(dest),
+            remote_url=remote_url,
+            github_token=token,
+            model=model,
         )
         return db.get_project(self.conn, pid)
+
+    async def set_model(self, project_id: int, model: str | None) -> dict:
+        """Set (or clear, with empty ``model``) a project's model override.
+
+        Persists the choice on the project row and drops the cached session so
+        the next turn rebuilds it with the new model. The resumed conversation,
+        branch, and working tree are untouched — only the model changes, taking
+        effect on the next message (the lab's equivalent of the CLI's ``/model``).
+        """
+        row = db.get_project(self.conn, project_id)
+        if row is None:
+            raise ProjectError(f"no such project: {project_id}")
+        model = (model or "").strip() or None
+        if model is not None and model not in KNOWN_MODEL_IDS:
+            raise ProjectError(f"unknown model: {model}")
+        async with self.lock(project_id):
+            db.set_project_model(self.conn, project_id, model)
+            self._sessions.pop(project_id, None)
+        return {"model": model or self.config.model}
 
     async def set_token(self, project_id: int, token: str | None) -> dict:
         """Set (or clear, with empty ``token``) a project's GitHub credential.
@@ -171,9 +207,13 @@ class ProjectManager:
         row = db.get_project(self.conn, project_id)
         if row is None:
             raise ProjectError(f"no such project: {project_id}")
+        # Per-project model override, falling back to the lab default. Reuse the
+        # shared config when they match so we don't clone it needlessly.
+        model = self.effective_model(row)
+        config = self.config if model == self.config.model else replace(self.config, model=model)
         session = LabSession(
             repo_path=row["path"],
-            config=self.config,
+            config=config,
             branch=row["branch"] or None,
             base_branch=row["base_branch"] or None,
             session_id=row["last_session_id"],

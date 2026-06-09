@@ -21,6 +21,7 @@ self-contained.
 
 ### Domains
 - [web-console](cards/web-console.md) — the browser UI, login, projects in labs/, talking to a project (v2 primary surface)
+- [known-models](cards/known-models.md) — the selectable model list (KNOWN_MODELS): how to check Anthropic's current lineup and update it
 - [dev-lab](cards/dev-lab.md) — the autonomous agent loop, sessions, anything running on the Pi
 - [chat-client](cards/chat-client.md) — starting/steering the lab, control surface, streaming agent output
 - [extension-clients](cards/extension-clients.md) — remote build/test, capability providers, MCP servers on other machines

@@ -243,6 +243,40 @@ input:focus, textarea:focus {
 }
 .merge-btn { font-size: 11px; padding: 6px 12px; }
 .head-right { display: flex; align-items: center; gap: 12px; }
+.model-picker[hidden] { display: none; }
+.model-picker { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.model-select {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .03em;
+  color: var(--accent);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 160px;
+}
+.model-select:hover { border-color: var(--accent-dim); }
+.model-select:disabled { cursor: progress; }
+.model-picker.is-loading { pointer-events: none; opacity: .9; }
+.model-picker.is-loading::before {
+  content: "";
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin .65s linear infinite;
+}
+.np-model {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--accent);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.np-model:hover { border-color: var(--accent-dim); }
 .clear-chat-btn { font-size: 11px; padding: 6px 12px; }
 .clear-chat-btn[hidden] { display: none; }
 .sys { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; padding: 4px 0; }

@@ -309,6 +309,66 @@ def test_set_token_unknown_project_errors(tmp_path):
         asyncio.run(pm.set_token(999, "tok"))
 
 
+def test_create_persists_valid_model_and_rejects_unknown(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, conn, _labs = _pm(tmp_path)
+
+    row = pm.create(str(src), model="claude-sonnet-4-6")
+    assert db.get_project(conn, row["id"])["model"] == "claude-sonnet-4-6"
+
+    with pytest.raises(ProjectError, match="unknown model"):
+        pm.create(str(src), model="gpt-9")
+
+
+def test_effective_model_falls_back_to_lab_default(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, conn, _labs = _pm(tmp_path)  # Config() default == claude-opus-4-8
+    pid = pm.create(str(src))["id"]  # no override
+
+    assert pm.effective_model(db.get_project(conn, pid)) == Config().model
+
+
+def test_set_model_validates_persists_and_takes_effect_next_turn(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    seen = []
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        seen.append(model)
+        (Path(cwd) / "f.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, conn, _labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+
+    asyncio.run(pm.run_turn(pid, "first"))  # runs on the lab default
+    out = asyncio.run(pm.set_model(pid, "claude-haiku-4-5-20251001"))
+    asyncio.run(pm.run_turn(pid, "second"))  # rebuilt session uses the new model
+
+    assert out["model"] == "claude-haiku-4-5-20251001"
+    assert db.get_project(conn, pid)["model"] == "claude-haiku-4-5-20251001"
+    assert seen == [Config().model, "claude-haiku-4-5-20251001"]
+
+    # empty clears back to the lab default
+    out = asyncio.run(pm.set_model(pid, ""))
+    assert out["model"] == Config().model
+    assert db.get_project(conn, pid)["model"] is None
+
+
+def test_set_model_rejects_unknown_and_unknown_project(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, _labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    with pytest.raises(ProjectError, match="unknown model"):
+        asyncio.run(pm.set_model(pid, "gpt-9"))
+    with pytest.raises(ProjectError, match="no such project"):
+        asyncio.run(pm.set_model(999, "claude-sonnet-4-6"))
+
+
 def test_run_turn_persists_messages_and_branch(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

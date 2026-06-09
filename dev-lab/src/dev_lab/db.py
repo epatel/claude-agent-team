@@ -105,6 +105,14 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE projects ADD COLUMN github_token TEXT;
         """,
     ),
+    (
+        7,
+        # Per-project model override. NULL means "use the lab default"
+        # (Config.model), so existing projects keep working unchanged.
+        """
+        ALTER TABLE projects ADD COLUMN model TEXT;
+        """,
+    ),
 ]
 
 
@@ -182,11 +190,12 @@ def create_project(
     path: str,
     remote_url: str | None = None,
     github_token: str | None = None,
+    model: str | None = None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO projects (name, path, remote_url, github_token, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (name, path, remote_url, github_token, time.time()),
+        "INSERT INTO projects (name, path, remote_url, github_token, model, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (name, path, remote_url, github_token, model, time.time()),
     )
     conn.commit()
     return int(cur.lastrowid)
@@ -202,6 +211,20 @@ def set_project_token(conn: sqlite3.Connection, project_id: int, token: str | No
     conn.execute(
         "UPDATE projects SET github_token = ? WHERE id = ?",
         (token or None, project_id),
+    )
+    conn.commit()
+
+
+def set_project_model(conn: sqlite3.Connection, project_id: int, model: str | None) -> None:
+    """Set (or clear, with ``None``) a project's model override.
+
+    Own statement rather than ``update_project`` because that helper skips
+    ``None`` (it can't tell "leave alone" from "clear"), and clearing back to the
+    lab default is a first-class operation here.
+    """
+    conn.execute(
+        "UPDATE projects SET model = ? WHERE id = ?",
+        (model or None, project_id),
     )
     conn.commit()
 

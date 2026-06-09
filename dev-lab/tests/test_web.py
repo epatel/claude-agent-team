@@ -187,6 +187,47 @@ def test_create_and_list_projects(tmp_path):
     assert client.post("/api/projects", json={"remote_url": ""}).status_code == 400
 
 
+def test_models_endpoint(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.get("/api/models").status_code == 401  # auth required
+    client.post("/api/register", json={"username": "a", "password": "p"})
+
+    body = client.get("/api/models").json()
+    assert body["default"] == Config().model
+    ids = [m["id"] for m in body["models"]]
+    assert Config().model in ids
+    assert all("id" in m and "label" in m for m in body["models"])
+
+
+def test_project_model_endpoint(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    src = str(tmp_path / "myrepo")
+
+    # create with an explicit model → it's exposed on the project
+    proj = client.post(
+        "/api/projects", json={"remote_url": src, "model": "claude-sonnet-4-6"}
+    ).json()
+    pid = proj["id"]
+    assert proj["model"] == "claude-sonnet-4-6"
+
+    # a project with no override reports the lab default
+    other = client.post("/api/projects", json={"remote_url": src}).json()
+    assert other["model"] == Config().model
+
+    # switch the model mid-session; clearing falls back to the default
+    r = client.post(f"/api/projects/{pid}/model", json={"model": "claude-haiku-4-5-20251001"})
+    assert r.status_code == 200 and r.json()["model"] == "claude-haiku-4-5-20251001"
+    listed = [p for p in client.get("/api/projects").json() if p["id"] == pid][0]
+    assert listed["model"] == "claude-haiku-4-5-20251001"
+    r = client.post(f"/api/projects/{pid}/model", json={"model": ""})
+    assert r.json()["model"] == Config().model
+
+    # an unknown model is rejected
+    assert client.post(f"/api/projects/{pid}/model", json={"model": "gpt-9"}).status_code == 400
+
+
 def test_project_token_endpoint(tmp_path):
     _src_repo(tmp_path / "myrepo")
     client, _ = _client(tmp_path)
