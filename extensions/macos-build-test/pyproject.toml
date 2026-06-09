@@ -5,8 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "macos-build-test"
 version = "0.1.0"
-description = "Extension client: an MCP server exposing build/test capabilities on macOS."
+description = "Platform client: an MCP server exposing build/test capabilities on macOS."
 requires-python = ">=3.11"
+# Also requires the sibling `platform-client` scaffold; relative-path deps
+# aren't expressible here, so `make setup` installs it: pip install -e ../platform-client
 dependencies = [
     "mcp>=1.0,<2",
 ]

@@ -1,13 +1,14 @@
-"""macOS build/test MCP server over HTTP+SSE (see cards/control-transports.md).
+"""macOS build/test platform client — the capability layer only.
 
-Exposes build/test capabilities as MCP tools the lab's agent calls remotely.
+Everything capability-independent (checkout workspace, serve CLI) comes from
+the shared ``platform_client`` scaffold; this module defines just the MCP
+tools this host offers the lab.
 """
 
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
-
-from .builder import run_in_checkout
+from platform_client import run_in_checkout
 
 
 def build_server(*, host: str = "127.0.0.1", port: int = 8970) -> FastMCP:

@@ -1,7 +1,8 @@
-"""Build/test execution for the macOS extension (see cards/extension-clients.md).
+"""Throwaway-checkout execution: the workspace primitive every platform client shares.
 
-Clones a git ref into a throwaway checkout and runs a command there, so the lab
-can build/test the exact commit it produced without touching the lab host.
+Clones a git ref into a temporary checkout and runs a command there, so the lab
+can build/test the exact commit it produced without touching the lab host. Code
+reaches platform clients via git, not file transfer (see cards/repo-sync.md).
 """
 
 from __future__ import annotations

@@ -39,6 +39,7 @@ Each line is a settled choice no agent should reopen without flagging here.
 - 2026-06-08 — The **GitHub repo is both source of truth and the synchronization substrate** between the lab and extension clients (the lab pushes a branch; extensions check out that commit to build/test).
 - 2026-06-08 — **Python + per-component venvs** for the toolchain.
 - 2026-06-08 — Default model is **`claude-opus-4-8`** with adaptive thinking.
+- 2026-06-10 — Extension clients share a scaffold: **`extensions/platform-client`** owns the capability-independent parts (throwaway-checkout runner, `serve` CLI); each client is only its FastMCP tool definitions. Component naming is settling on **"platform client"** (the old "extension client" term mislabels what is an MCP *server*; "extension" survives in `EXTENSIONS` env and `extensions/` dir).
 - 2026-06-09 — Model is **selectable per project** in the web console (chosen at clone time, switchable mid-chat like the CLI's `/model`): stored on the project row (NULL = lab default), the switch drops the cached session so the next turn rebuilds with the new model while the resumed conversation continues. The lab default (`MODEL` env, else `claude-opus-4-8`) is the fallback; selectable ids live in `config.KNOWN_MODELS`.
 - 2026-06-08 — The lab authenticates via a **Claude subscription** through a one-time interactive `claude` login (credentials persist in `~/.claude` and auto-refresh), **not** an API key or a token in `.env`; `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` must stay unset (they override it and bill the API).
 - 2026-06-08 — Agent SDK package is **`claude-agent-sdk`** (0.2.x, Python). The agent runs with `permission_mode=bypassPermissions` and a workspace-scoped tool set (Read/Write/Edit/Glob/Grep/Bash); the **lab owns commits**, the agent is told not to touch git. Runtime requires the Claude Code CLI on the host.
@@ -64,10 +65,10 @@ auth, and a vanilla web UI (login + project sidebar + chat with markdown/mermaid
 migrations #2 (projects/messages) and #3 (users). **Merged to `main`** (2026-06-08,
 fast-forward) — `main` now carries the full history (M0–M4 + v2).
 
-Repo has three `src`-layout components — `dev-lab/`, `chat-client/`,
-`extensions/macos-build-test/` — each with its own venv and `pyproject.toml`. A
-root `Makefile` drives per-component venvs (`make setup|test|lint|fmt|clean`);
-lint is ruff, tests are pytest.
+Repo has four `src`-layout components — `dev-lab/`, `chat-client/`,
+`extensions/platform-client/`, `extensions/macos-build-test/` — each with its
+own venv and `pyproject.toml`. A root `Makefile` drives per-component venvs
+(`make setup|test|lint|fmt|clean`); lint is ruff, tests are pytest.
 
 **dev-lab (M1):** `workspace.py` (git wrapper), `agent.py` (Claude Agent SDK
 loop — `bypassPermissions`, workspace-scoped tools), `lab.py` (`run_once`:
@@ -106,9 +107,18 @@ bus-event publishing); lint clean. **Live-verified**: `chat-client submit` over
 WebSocket streamed `ack → job_running → agent_message(s) → job_done`, a real
 commit landed, and the run was recorded in SQLite (~$0.13).
 
+**extensions/platform-client (scaffold, 2026-06-10):** the capability-independent
+parts of an extension MCP server, extracted from macos-build-test so a new
+platform client is only its tool definitions: `run_in_checkout`/`CommandResult`
+(clone ref → run command → bounded result) and `extension_cli` (the standard
+`serve --host --port` SSE entry point). macos-build-test now depends on it
+(installed by `make setup`; relative-path deps aren't expressible in pyproject).
+How to create a new client: cards/extension-clients.md. Naming is settling on
+**"platform client"** for these components.
+
 **extensions/macos-build-test (M4):** a FastMCP server over SSE
 (`macos-build-test serve --host --port`) with `run_tests` / `build` tools
-(`builder.run_in_checkout`: clone → checkout ref → run command → return
+(via the platform-client scaffold: clone → checkout ref → run command → return
 result). The lab reaches it via `EXTENSIONS` env; `agent.build_agent_options`
 turns each into an `{type: sse, url}` MCP server plus an `mcp__<name>` allowed
 tool. Verified: 41 tests; lint clean. **Live-verified end-to-end**: with the extension

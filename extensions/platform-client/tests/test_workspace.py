@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from macos_build_test.builder import run_in_checkout
+from platform_client import run_in_checkout
 
 
 def _make_repo(path: Path) -> None:
