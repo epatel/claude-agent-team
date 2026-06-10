@@ -1,203 +1,184 @@
 # Handoff — claude-agent-team
 
-Status doc for the next agent. Last updated 2026-06-08.
+Status doc for the next agent. Last updated 2026-06-10.
 For the durable plan see `project-plan.md`; for architecture see `CLAUDE.md` +
 `cards/`. This file is the quick "where are we, what's left" orientation.
 
 ## TL;DR
 
-An always-on Claude Agent SDK "dev lab". Two surfaces:
-- **v2 web console (primary):** `dev-lab web` — a FastAPI app with login
+An always-on Claude Agent SDK "dev lab". Three pieces:
+- **v2 web console (primary):** `dev-lab web` — FastAPI app with login
   (multi-user), a `labs/` directory of projects (each its own git clone + Claude
-  agent/context), and a browser chat that renders markdown + mermaid. **Done and
-  live-verified.**
+  agent/context), browser chat with markdown + mermaid, repo actions
+  (fetch/pull/push/merge/browse), **per-project model selection** (switchable
+  mid-chat), and a connected-clients sidebar. Done and live-verified.
+- **Platform clients (M6 v1, new):** capability providers on other machines
+  that **dial in to the lab** over WebSocket, announce capabilities, and run
+  commands in a manifest-synced mirror of a project's working tree. The agent
+  drives them via `mcp__lab` tools. Live-verified on a single host.
 - **CLI (older, single-project):** `serve` + `chat-client` over WebSocket, file
-  queue, extension MCP build/test. M0–M4 done and live-verified.
+  queue. Still works, secondary.
 
-**What's left:** TLS/reverse-proxy for the web console, real-Pi deployment, GitHub
-push (see gaps). 60 tests pass (dev-lab 50, chat-client 6, extension 4), ruff clean.
+**What's left:** cross-machine (Mac ↔ Pi) live verification, port
+macos-build-test to the new model, M5 hardening (TLS, WS auth, observability),
+real-Pi deployment. 149 tests pass (dev-lab 117, platform-client 24,
+chat-client 6, macos-build-test 2), ruff clean.
 
-Git: all work is merged into **`main`** (fast-forward; the `m0-skeleton` and
-`v2-web-console` branches are now redundant and can be deleted). Nothing is
-pushed to a remote yet.
+Git: everything on **`main`**, pushed to
+`github.com/epatel/claude-agent-team`.
 
 ## Architecture (as built)
 
-Primary surface — the v2 web console:
-
 ```mermaid
 flowchart LR
-    B[Browser SPA<br/>login · projects · chat] -->|HTTP + WebSocket| WEB[FastAPI<br/>dev_lab.web]
+    B[Browser SPA<br/>login · projects · chat · clients] -->|HTTP + WebSocket /ws| WEB[FastAPI<br/>dev_lab.web]
+    PC[platform-client connect<br/>macOS / other machines] -->|WebSocket /ws/client, dialed by client| WEB
+    WEB --> REG[ClientRegistry<br/>presence · dispatch · file serving]
     WEB --> PM[ProjectManager]
     PM --> P[(labs/&lt;repo&gt;<br/>per-project clone)]
-    WEB --> S[LabSession per project<br/>branch + resumed context]
+    WEB --> S[LabSession per project<br/>branch + resumed context + model]
     S --> AG[Claude agent<br/>subscription auth]
-    AG -->|MCP over HTTP+SSE| EXT[macos-build-test<br/>run_tests / build]
-    WEB --> DB[(labs/.dev-lab/lab.db<br/>users · projects · messages)]
-    WEB -->|merge → base| P
+    AG -->|mcp__lab: list_clients · run_on_client · fetch_from_client| REG
+    REG -->|manifest sync + task| PC
+    WEB --> DB[(labs/.dev-lab/lab.db)]
 ```
 
-Verified end to end: browser login → clone project → cookie-authed WebSocket chat
-→ per-project agent → streamed tool/markdown/mermaid → commit → merge → base →
-per-project persistence.
-
-The older **CLI path** still works and is independent: `chat-client` → `dev-lab
-serve` (WebSocket) → file queue → supervisor → agent → MCP → run history in
-SQLite. See `cards/dev-lab.md`.
+The reversed connection (clients dial the lab) replaced the old MCP-over-SSE
+`EXTENSIONS=name=url` model on 2026-06-10 — see `cards/extension-clients.md`
+and the superseded-decision notes in the plan. Key properties: presence = the
+registry; code reaches clients via **content-hash manifest sync** (uncommitted
+working tree included, warm per-project mirror, strays deleted each run);
+`run_on_client` takes `preserve` glob patterns to keep build artifacts between
+runs; `fetch_from_client` pulls artifacts back into the lab's working tree
+(they get committed with the session unless .gitignored).
 
 ## Repo layout
 
 ```
-dev-lab/                  # the autonomous lab (runs on the Pi) — Python, its own venv
+dev-lab/                  # the lab (runs on the Pi) — Python, its own venv
   src/dev_lab/
-    config.py       # load_config(): MODEL + EXTENSIONS; refuses to start if ANTHROPIC_API_KEY set (GitHub auth is per project, on the project row)
-    workspace.py    # git wrapper: branch/inspect/commit/checkout, merge(base,branch) — NOTE: no push yet (see gaps)
-    agent.py        # Claude Agent SDK loop; build_agent_options() wires extension MCP servers
-    lab.py          # run_once(): clean-tree -> branch -> agent edits -> one commit
-    queue.py        # FileQueue: pending/running/done/failed, atomic claim, crash recovery
-    supervisor.py   # serve(): drain queue, fail-and-continue, publish events, record runs
-    session.py      # LabSession: interactive chat — one branch, resumed agent context per turn
-    projects.py     # v2: ProjectManager — discover/clone(name from URL,+_2)/open/merge_to_base, per-project session+lock
-    auth.py         # v2: multi-user accounts (scrypt), session helpers
-    web.py          # v2: FastAPI app — login, projects REST, /ws chat, static mount
-    static/         # v2: vanilla web UI (index.html, app.js, style.css, vendor/{marked,purify,mermaid})
-    db.py           # SQLite + migrations (1 runs, 2 projects/messages, 3 users)
-    events.py       # in-process EventBus (pub/sub)
-    server.py       # CLI WebSocket control surface: submit -> queue; message -> chat session
-    __main__.py     # CLI: web | run | serve | submit
-chat-client/              # CLI control surface client (older surface)
-  src/chat_client/{client.py (format_event), __main__.py (chat|submit|listen)}
-extensions/macos-build-test/   # first extension — Python, its own venv
-  src/macos_build_test/{builder.py (run_in_checkout), server.py (FastMCP/SSE), __main__.py (serve)}
-deploy/                   # dev-lab.service (systemd) + README.md (Pi provisioning)
-cards/                    # Context Cards (architecture + domain + decision)
-project-plan.md           # milestones, decisions, open questions
+    config.py       # Config + KNOWN_MODELS (selectable models; see cards/known-models.md) + CLIENT_TOKEN
+    clients.py      # ClientRegistry: connected platform clients, task dispatch, fetch, file serving; wire protocol doc
+    agent.py        # Agent SDK loop; _client_tools() = mcp__lab SDK toolset; claude_code preset + append
+    projects.py     # ProjectManager: discover/clone/open/merge/push/pull, per-project model, set_model
+    session.py      # LabSession: one branch + resumed context per project
+    web.py          # FastAPI: login, projects REST, /api/models, /api/clients, /ws (console), /ws/client (platform clients)
+    db.py           # SQLite migrations 1–7 (7 = projects.model)
+    workspace.py / auth.py / events.py / static/ / queue.py / supervisor.py / lab.py / server.py
+chat-client/              # CLI control surface (older surface)
+extensions/
+  platform-client/        # shared package: manifest.py (sync primitives), runtime.py (+ connect CLI), legacy workspace/cli
+  macos-build-test/       # OLD MCP-over-SSE model — still works, to be ported (then likely deleted)
+deploy/                   # dev-lab.service (systemd) + Pi provisioning README
+cards/                    # Context Cards — index in CLAUDE.md
 ```
 
-Versions: dev-lab 0.6.0, chat-client 0.2.0, macos-build-test 0.1.0.
+Versions: dev-lab 0.6.0, chat-client 0.2.0, platform-client 0.2.0.
 
 ## How to run / develop
 
 ```sh
-make setup           # create a venv per component, install editable + dev deps
-make test            # 60 tests (dev-lab 50, chat-client 6, extension 4)
+make setup           # venv per component; also installs platform-client into dev-lab + macos venvs
+make test            # 149 tests
 make lint            # ruff
 ```
 
-Primary surface — web console:
+Web console + a platform client (the M6 loop):
 
 ```sh
+# lab (optionally CLIENT_TOKEN=... to gate clients)
 dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
-# open http://127.0.0.1:8770 → register → new/select project (paste a GitHub
-# token for private repos) → chat
+
+# on the capability machine (mirrors default to ~/.platform-client/mirrors)
+platform-client connect --lab ws://<lab>:8770/ws/client --name mac \
+  --capability run_tests --capability build [--token ...]
+
+# then in a project chat: "run `make test` on client mac" — the agent uses
+# mcp__lab list_clients / run_on_client / fetch_from_client
 ```
 
-Older CLI surface (each from its component's `.venv/bin/`):
-
-```sh
-dev-lab run "<instruction>" --repo <clone>        # one-shot
-dev-lab serve --repo <clone> [--queue D --db F --host H --port P --poll S]
-dev-lab submit "<instruction>" [--queue D]
-chat-client {chat|submit|listen} [--url ws://host:8765]
-macos-build-test serve [--host H --port 8970]     # serves /sse
-```
-
-Auth/config env: `MODEL` (default `claude-opus-4-8`), `EXTENSIONS=name=url,...`.
-GitHub auth is **per project** — each project carries its own token (entered in
-the web console, stored on its `projects` row), so there is no `GITHUB_TOKEN`
-env var. Claude auth is the **`claude` login** (subscription), not an env var.
+Auth: Claude = one-time `claude` login (subscription, **no API key ever** —
+the lab refuses to start if one is set). GitHub = per project, entered in the
+web console. `.env` holds optional overrides only (`MODEL`, `CLIENT_TOKEN`).
 
 ## Verified vs not
 
-- **Live-verified** (real credits/sockets): M1 (instruction→commit), M3
-  (chat→streamed agent output→commit), M4 (agent autonomously calling the
-  extension MCP tool — proven via `CallToolRequest` log + side-effect file +
-  stdout token), and **interactive chat sessions** (two follow-up turns on one
-  `chat/<ts>` branch with resumed memory — turn 2 recalled a number from turn 1's
-  conversation that was never on disk), and the **v2 web console** (served
-  frontend + register + clone a project + cookie-authed WebSocket chat → streamed
-  tool/markdown/mermaid → commit → **merge → base** → per-project persistence).
-- **Eyeballed via headless Chromium (Playwright):** login, sidebar/project list, a
-  chat with rendered markdown + mermaid, and the clone busy-spinner — all look
-  right (and caught + fixed a mermaid label bug doing it). Not yet opened in a
-  real human browser.
-- **Tested but not on real hardware:** M2 runs uninterrupted locally; **never
-  run on an actual Raspberry Pi**.
-- Live runs need: `claude` logged in, network, and spend subscription credits
-  (~$0.10–0.40 each). Run them with the sandbox disabled.
+- **Live-verified** (real credits/sockets): M1/M3/M4 + interactive sessions +
+  the v2 web console (all 2026-06-08, see git history), and **M6 v1 on a
+  single host** (2026-06-10): real `dev-lab web` + real `platform-client
+  connect` + one agent chat turn — the agent autonomously called
+  `list_clients` → `run_on_client` (stdout + changed-files came back) →
+  `fetch_from_client` (artifact landed in the lab tree, committed on the chat
+  branch); wrong-token hello rejected (1008); registry emptied on client kill.
+- **Automated end-to-end**: `dev-lab/tests/test_clients_live.py` runs the full
+  protocol over a real uvicorn + websocket (sync, warm second run, preserve,
+  fetch) on every `make test`.
+- **Not yet:** cross-machine (Mac ↔ Pi) run; real Raspberry Pi hardware (M2
+  verified locally only).
+- Live agent runs need: `claude` logged in, network, subscription credits
+  (~$0.10–0.40 each), sandbox disabled.
 
 ## What's left
 
-### Gaps in what looks done (read these first)
-- **No remote push (local merge only).** The web console can now **merge a chat
-  branch into the project's base branch locally** (`workspace.merge` →
-  `ProjectManager.merge_to_base` → `POST /api/projects/{id}/merge`, "merge → base"
-  button). But nothing is **pushed** to GitHub yet — a project's per-project
-  token is used to *clone* (and could push) private repos. To complete repo-sync (push → extension
-  clones the pushed commit), add a `workspace.push` and a push step after merge.
-- **M2 not validated on a Pi.** Follow `deploy/README.md` on real hardware
-  (install Claude Code CLI, `claude` login as the service user, systemd enable).
-- **Web console has no TLS.** Auth (accounts + signed cookie) exists, but the
-  cookie isn't `Secure` and there's no HTTPS. Only bind `0.0.0.0` behind a reverse
-  proxy / Tailscale. No `deploy/` unit for `dev-lab web` yet, and open
-  registration is unrestricted (add a signup gate to lock it down).
+### Next obvious moves
+- **Cross-machine live verification**: lab on the Pi (or this Mac), client on
+  the other machine; needs the Pi reachable (port-forward or Tailscale).
+- **Port `macos-build-test`** to the new model — it's just
+  `platform-client connect --capability ...` now; then delete the old
+  FastMCP/SSE code (`workspace.run_in_checkout`, `extension_cli`, `EXTENSIONS`
+  env + `agent.build_agent_options` SSE wiring).
+- **Wrong-token UX** (verification finding): the client prints a raw
+  traceback on auth rejection, and `connect_forever` retries forever against a
+  wrong token (auth close should be terminal like `ProtocolError`).
 
-### M5 — hardening (the open questions concentrate here)
-- **Web console:** TLS + `Secure` cookie, a systemd unit for `dev-lab web`,
-  optional signup-token gate.
-- **Auth on the CLI WebSocket control surface** (`dev-lab serve`) — still
-  unauthenticated/loopback (the web console is the authenticated path).
-- **Auth on the extension SSE endpoints** — same; currently open.
-- **Reconnection** — chat client reconnect; lab↔extension MCP resilience.
-- **Observability** — health endpoint, structured logs, expose the SQLite run
-  history.
-- **Multi-extension discovery** — currently static `EXTENSIONS` env; consider a
-  registry.
-- **Optional: SDK session-resume** (`resume`/`session_id`) so a single long task
-  survives a mid-run crash (today a crashed job is requeued and re-run from
-  scratch on a fresh branch).
-
-### Housekeeping
-- Delete the merged `m0-skeleton` / `v2-web-console` branches; set up a remote and push.
+### M5 — hardening
+- TLS + `Secure` cookie + a systemd unit for `dev-lab web`; signup gate exists
+  (invite codes) but cookie/transport security doesn't.
+- Auth: console WS uses the session cookie; `/ws/client` has optional
+  `CLIENT_TOKEN`; the old CLI `serve` socket is still unauthenticated/loopback.
+- Observability: health endpoint, structured logs, surface run history.
+- Manifest sync scale: whole-tree hash per task, 10MB per-file cap — fine for
+  small repos; mtime cache / chunked transfer if trees grow.
 
 ## Gotchas the next agent must know
 
 1. **Never set `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`** — they override
-   subscription auth and the lab refuses to start. Auth = a one-time `claude`
-   login; the service must run as that user (creds in `~/.claude`).
-2. **`agent.py` must use the `claude_code` system-prompt preset with `append`** —
-   a bare custom `system_prompt` string drops the engine's working-directory
-   context and the agent writes files outside the clone. (Cost me a debugging
-   round; verified fix is in.)
-3. **SQLite migrations are append-only**, keyed on `PRAGMA user_version`
-   (`db.py`, now #1 runs / #2 projects+messages / #3 users). Never edit/renumber a
-   shipped migration — add a new one.
-4. **Transports are decided:** WebSocket for chat/UI, HTTP+SSE for extension MCP
-   (`cards/control-transports.md`).
-5. **Per-component venvs** — don't add one shared venv. `make setup` per repo.
-6. **Opus needs a Max plan**; subscription Agent SDK usage is personal-use only
-   and draws from a separate monthly credit pool.
-7. The **file queue is intentionally filesystem-based** (atomic-rename claim);
-   durable *records/logs* go to SQLite. Don't "consolidate" them without reason.
-8. **v2: each project is its own clone under `labs/`** with its own session/branch
-   (`projects.py`). All lab state (db + cookie secret) lives under
-   `<labs>/.dev-lab/`. `db.connect` uses `check_same_thread=False` because the web
-   loop may run on a different thread than where the connection was created
-   (access stays serialized through the single event loop).
-9. **Web: agent output is untrusted** — it's rendered as markdown, so always keep
-   `DOMPurify.sanitize` + mermaid `securityLevel:"strict"` in `static/app.js`.
-   (Mermaid's own SVG is injected raw — strict mode sanitizes it; a DOMPurify pass
-   over it mangles the diagram.)
-10. **New UI buttons** that fire an async/slow action must use `withButton(...)` in
-    `static/app.js` (double-tap guard + spinner). See `cards/no-double-submit.md`.
+   subscription auth; the lab refuses to start. Auth = one-time `claude` login.
+2. **`agent.py` must use the `claude_code` system-prompt preset with `append`**
+   — a bare custom `system_prompt` drops cwd context and the agent writes
+   outside the clone.
+3. **SQLite migrations are append-only** (now 1–7; 7 = `projects.model`).
+   Never edit/renumber a shipped one.
+4. **The client wire protocol is lab-owned** — documented in
+   `dev_lab/clients.py`'s module docstring; `task_id` is a correlation id
+   (fetches use it too). Both sides share `platform_client.manifest`; the
+   Makefile installs platform-client into dev-lab's venv (pyproject can't
+   express relative-path deps — keep the `make setup` lines).
+5. **Mirror semantics**: sync deletes mirror files not in the source manifest
+   (including previous run artifacts) unless `preserve` patterns say otherwise;
+   `DEFAULT_IGNORES` (.git/.venv/__pycache__/…) are never synced *or* deleted.
+   fnmatch `*` crosses `/`.
+6. **Per-component venvs** — no shared venv; `make setup`.
+7. **Opus needs a Max plan**; subscription SDK usage draws from a separate
+   monthly credit pool, personal-use only.
+8. **v2: each project is its own clone under `labs/`**; lab state in
+   `<labs>/.dev-lab/`. Per-project model: NULL on the row = lab default;
+   switching drops the cached session (conversation resumes, next turn uses the
+   new model).
+9. **Web: agent output is untrusted** — keep `DOMPurify.sanitize` + mermaid
+   `securityLevel:"strict"` in `static/app.js`.
+10. **New UI buttons** that fire async actions use `withButton(...)` (or the
+    select-element variant) — `cards/no-double-submit.md`.
+11. **Naming**: these components are **"platform clients"** now (settled
+    2026-06-10); "extension" survives in the `extensions/` dir and legacy
+    `EXTENSIONS` env until the old model is deleted.
 
 ## Pointers
 
-- `project-plan.md` — Goal / Non-goals / Milestones / Decisions / Open questions.
-- `QUICKSTART.md` — run the web console and the CLI surface.
-- `CLAUDE.md` — card index (trigger-phrase based); read a card when its trigger matches.
-- `cards/` — `architecture`, `web-console`, `dev-lab`, `chat-client`,
-  `extension-clients`, `repo-sync`, `deployment`, and decision cards
-  (`subscription-auth`, `control-transports`, `sqlite-runtime-data`,
-  `no-double-submit`, `mcp-for-extensions`, `claude-agent-sdk-self-hosted`,
-  `python-venvs`).
+- `project-plan.md` — milestones, decisions (incl. superseded ones), open questions.
+- `QUICKSTART.md` — run the web console and CLI surface.
+- `CLAUDE.md` — card index; read a card when its trigger matches.
+- Key cards for current work: `extension-clients` (reversed-connection model +
+  how to create a client), `mcp-for-extensions` (why MCP stays at the agent
+  boundary), `known-models` (updating the model list), `web-console`,
+  `subscription-auth`.
