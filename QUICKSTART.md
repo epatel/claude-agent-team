@@ -44,18 +44,23 @@ dev-lab/.venv/bin/dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
 
 Open `http://127.0.0.1:8770` and **register** — the **first user becomes the
 super-user** (no invite needed; everyone later needs an invite code minted in
-the ⚙ admin panel). Then:
+the ⚙ admin panel). Projects are **per user**: you see only the ones you
+created; super-users see everything (with owner labels). Then:
 
-- **+ new project** → paste a git URL to clone (token for private repos), **or**
-  leave the URL empty and give just a name to git-init a blank repo. Existing
-  checkouts dropped into `labs/` auto-appear.
-- Pick a project, chat with its agent on the **chat** tab. Follow-ups continue
+- **+ new project** opens a dialog with two tabs: **from git url** (clone;
+  token for private repos) or **blank repo** (just a name; git-inits an empty
+  repo, no remote). The new project opens right away. Existing checkouts
+  dropped into `labs/` auto-appear (visible to super-users).
+- Chat with the project's agent on the **chat** tab. Follow-ups continue
   the same `chat/<ts>` branch with the same resumed context; replies render as
   markdown + mermaid; tool calls stream as live activity. Attach files for the
   agent with the `+` button (or paste a screenshot).
 - The **repo** tab has the file browser (+ uploads into the tree, zip download)
   and the git actions: fetch / pull / push / reset, rebase-on-base (conflicts
   can be handed to the agent in chat), merge branch → base, remove project.
+- The **agent** tab is per-project agent setup: a project prompt (appended to
+  the system prompt), MCP servers (JSON name → config), and skills — managed
+  as `.claude/skills/<name>/SKILL.md` files committed in the repo.
 
 State (SQLite + cookie secret) lives under `<labs>/.dev-lab/`. Each project is
 its own clone, agent context, and branch.
@@ -99,26 +104,31 @@ loopback.
 
 ---
 
-## B. Production (the Pi)
+## B. Production (any always-on host)
 
-The reference deployment runs the web console on a Raspberry Pi 5 behind an
-Apache TLS reverse proxy under a path prefix (the SPA is prefix-aware). Full
-steps live in `deploy/README.md`; the shape:
+The lab runs on anything with Python 3.11+ and the Claude Code CLI — a Linux
+server, a Mac mini, a VPS, a Raspberry Pi. The production shape is: the web
+console under a process supervisor, bound to **loopback only**, behind a
+TLS-terminating reverse proxy under a path prefix (the SPA is prefix-aware).
+Full steps live in `deploy/README.md`; `deploy/home/` is a complete worked
+example (the reference site, a Pi 5 + Apache). The shape:
 
 ```sh
-# on the Pi, as one user (claude credentials are user-scoped):
+# on the lab host, as one user (claude credentials are user-scoped):
 npm install -g @anthropic-ai/claude-code && claude     # one-time login
-# code at ~/dev-lab/claude-agent-team, venv per deploy/README.md, then:
+# venv per deploy/README.md, then (systemd hosts; adapt the unit's user/paths):
 sudo cp deploy/dev-lab-web.service /etc/systemd/system/ && sudo systemctl enable --now dev-lab-web
-# Apache: include deploy/apache-dev-lab.conf inside the TLS vhost
+# reverse proxy: deploy/apache-dev-lab.conf (Apache) or deploy/nginx-dev-lab.conf (nginx)
 ```
 
-- `dev-lab web` binds **loopback only**; Apache terminates TLS and proxies
-  `/dev-lab/` (HTTP + both WebSocket endpoints) to it.
+- The proxy forwards `/dev-lab/` — plain HTTP plus both WebSocket endpoints
+  (`/ws` console, `/ws/client` platform clients) — to 127.0.0.1:8770.
 - Platform clients connect from anywhere via
   `wss://<host>/dev-lab/ws/client` with the shared `CLIENT_TOKEN`.
 - Register your account **immediately after first deploy** — the first
   registration becomes the super-user without an invite.
+- On non-systemd hosts (e.g. macOS) use launchd or any supervisor that
+  restarts the same `dev-lab web …` command on crash/boot.
 
 ## Caveats
 
