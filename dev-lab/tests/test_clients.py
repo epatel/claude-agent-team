@@ -245,7 +245,9 @@ def test_ws_client_hello_registers_and_disconnect_unregisters(tmp_path):
             "capabilities": [{"name": "run_tests"}],
         }))
         ok = json.loads(ws.receive_text())
-        assert ok == {"type": "hello_ok", "name": "mac"}
+        assert ok["type"] == "hello_ok"
+        assert ok["name"] == "mac"
+        assert ok["lab"] == app.state.lab_id  # clients namespace mirrors by this
         listed = app.state.registry.list()
         assert listed == [{
             "name": "mac", "platform": "darwin",

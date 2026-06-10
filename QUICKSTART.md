@@ -77,7 +77,9 @@ e.g. "run `make test` on client mac" — it uses the `mcp__lab` tools
 tree (uncommitted changes included) is mirrored to the client via content-hash
 manifest sync; results and changed files come back; artifacts can be fetched
 into the lab tree. The file browser can browse/clean client mirrors per
-project. Mirrors live under `~/.platform-client/mirrors`.
+project. Mirrors live under `~/.platform-client/mirrors/<lab-id>/` — namespaced by the
+lab's stable id (sent in `hello_ok`), so several labs can share one client
+machine without same-named projects colliding.
 
 To gate the client endpoint, set `CLIENT_TOKEN=<secret>` in `dev-lab/.env` and
 pass `--token <secret>` (or the `CLIENT_TOKEN` env var) to the client.

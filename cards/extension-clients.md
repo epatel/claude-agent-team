@@ -57,6 +57,11 @@ sequenceDiagram
   binary or report lands where the agent — and the next commit — can see it;
   .gitignore what shouldn't land in history). Oversized files (> the manifest
   size cap) are refused per path.
+- **Per-lab mirror namespace** — `hello_ok` carries the lab's stable id
+  (minted once into `<labs>/.dev-lab/lab-id`); the client keys mirrors as
+  `<mirrors>/<lab-id>/<project>`, so multiple labs can share one client
+  machine without same-named projects colliding. A lab that sends no id (older
+  lab) gets the flat legacy layout.
 - **Inspecting and cleaning mirrors** — the lab can ask a client what its
   mirror of a project holds (`mirror` → manifest, no content; the web console's
   file-browser source tabs are built on this) and delete a project's mirror

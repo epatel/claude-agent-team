@@ -11,6 +11,7 @@ import asyncio
 import json
 import mimetypes
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Annotated
 
@@ -94,12 +95,38 @@ async def _run_turn(pm: ProjectManager, bus: EventBus, project_id: int, text: st
     )
 
 
-async def _ws_pump(ws: WebSocket, events: asyncio.Queue) -> None:
+async def _ws_pump(ws: WebSocket, events: asyncio.Queue, allowed=None) -> None:
+    """Forward bus events to one console socket.
+
+    ``allowed(event) -> bool`` filters project-scoped events so a user's
+    console never receives another user's chat/tool stream (strict per-user
+    projects); events without a project_id (clients_changed, projects_changed)
+    pass through — they only poke the UI to re-fetch filtered endpoints.
+    """
     try:
         while True:
-            await ws.send_text(json.dumps(await events.get()))
+            event = await events.get()
+            if allowed is not None and not allowed(event):
+                continue
+            await ws.send_text(json.dumps(event))
     except (WebSocketDisconnect, RuntimeError):
         return
+
+
+def _ensure_lab_id(state_dir: Path) -> str:
+    """A stable id for this lab, minted once into ``<labs>/.dev-lab/lab-id``.
+
+    Sent to platform clients in ``hello_ok`` so they namespace their mirrors
+    per lab — two labs sharing one client machine must not collide on
+    same-named projects (see cards/extension-clients.md).
+    """
+    state_dir.mkdir(parents=True, exist_ok=True)
+    id_file = state_dir / "lab-id"
+    if id_file.exists():
+        return id_file.read_text().strip()
+    lab_id = uuid.uuid4().hex[:12]
+    id_file.write_text(lab_id)
+    return lab_id
 
 
 def build_app(
@@ -115,6 +142,7 @@ def build_app(
     app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax")
     bus = bus or EventBus()
     registry = ClientRegistry()
+    app.state.lab_id = _ensure_lab_id(Path(labs_dir) / ".dev-lab")
     app.state.registry = registry  # reachable from tests
     pm = ProjectManager(labs_dir=labs_dir, config=config, conn=conn, client_registry=registry)
     pm.discover()
@@ -133,6 +161,26 @@ def build_app(
         user = current_user(request)
         if not user["is_super"]:
             raise HTTPException(status_code=403, detail="super-user only")
+        return user
+
+    def _can_access(user: sqlite3.Row, project: sqlite3.Row) -> bool:
+        """Strict per-user projects: owners see theirs, supers see everything.
+
+        ``owner_id`` NULL (pre-migration rows, checkouts dropped into labs/)
+        means "no owner" — visible to super-users only.
+        """
+        return bool(user["is_super"]) or project["owner_id"] == user["id"]
+
+    def _require_project(request: Request, project_id: int) -> sqlite3.Row:
+        """Auth + ownership gate for project-scoped endpoints.
+
+        An existing-but-foreign project 404s (not 403) so the API doesn't
+        confirm which ids exist to other users.
+        """
+        user = current_user(request)
+        row = db.get_project(conn, project_id)
+        if row is None or not _can_access(user, row):
+            raise HTTPException(404, f"no such project: {project_id}")
         return user
 
     @app.post("/api/register")
@@ -272,13 +320,13 @@ def build_app(
 
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
-        current_user(request)
-        return [_project_dict(pm, r) for r in pm.discover()]
+        user = current_user(request)
+        return [_project_dict(pm, r) for r in pm.discover() if _can_access(user, r)]
 
     @app.post("/api/projects")
     async def create_project(request: Request) -> dict:
         """Clone ``remote_url`` — or, given only ``name``, git-init a blank repo."""
-        current_user(request)
+        user = current_user(request)
         data = await request.json()
         remote_url = (data.get("remote_url") or "").strip()
         name = (data.get("name") or "").strip()
@@ -286,9 +334,11 @@ def build_app(
         model = (data.get("model") or "").strip()
         try:
             if remote_url:
-                row = pm.create(remote_url, github_token=github_token, model=model)
+                row = pm.create(
+                    remote_url, github_token=github_token, model=model, owner_id=user["id"]
+                )
             elif name:
-                row = pm.create_blank(name, model=model)
+                row = pm.create_blank(name, model=model, owner_id=user["id"])
             else:
                 raise ProjectError("a git URL (clone) or a project name (new repo) is required")
         except ProjectError as exc:
@@ -299,7 +349,7 @@ def build_app(
     @app.delete("/api/projects/{project_id}")
     async def remove_project(project_id: int, request: Request) -> dict:
         """Remove the lab's copy of a project and clean client mirrors."""
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.remove(project_id)
         except ProjectError as exc:
@@ -311,7 +361,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/token")
     async def set_token(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         data = await request.json()
         token = (data.get("github_token") or "").strip()
         try:
@@ -323,7 +373,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/model")
     async def set_model(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         data = await request.json()
         model = (data.get("model") or "").strip()
         try:
@@ -335,7 +385,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/merge")
     async def merge_project(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.merge_to_base(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -346,7 +396,7 @@ def build_app(
     @app.post("/api/projects/{project_id}/rebase")
     async def rebase_project(project_id: int, request: Request) -> dict:
         """Rebase the chat branch onto base; conflicts come back as data."""
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.rebase_onto_base(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -357,7 +407,7 @@ def build_app(
     @app.post("/api/projects/{project_id}/reset")
     async def reset_project(project_id: int, request: Request) -> dict:
         """Discard uncommitted working-tree changes (commits are kept)."""
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.reset_working_tree(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -389,7 +439,7 @@ def build_app(
         dest: Annotated[str, Form()] = "",
     ) -> dict:
         """Upload files into the working tree (committed straight away)."""
-        current_user(request)
+        _require_project(request, project_id)
         good, errors = await _read_uploads(files)
         try:
             result = await pm.upload_files(project_id, good, dest=dest)
@@ -406,7 +456,7 @@ def build_app(
         files: Annotated[list[UploadFile], File()],
     ) -> dict:
         """Stash chat attachments in .lab-uploads/ for the agent to read."""
-        current_user(request)
+        _require_project(request, project_id)
         good, errors = await _read_uploads(files)
         try:
             saved = await pm.chat_uploads(project_id, good)
@@ -417,7 +467,7 @@ def build_app(
     @app.get("/api/projects/{project_id}/archive")
     async def archive_project(project_id: int, request: Request) -> Response:
         """The working tree as a zip download (sync ignores excluded)."""
-        current_user(request)
+        _require_project(request, project_id)
         try:
             name, data = await pm.archive(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -430,7 +480,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/pull")
     async def pull_project(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.pull_base(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -440,7 +490,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/push")
     async def push_project(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.push_base(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -450,7 +500,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/fetch")
     async def fetch_project(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await pm.fetch_base(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -460,7 +510,7 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/branches")
     async def list_branches(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             return await pm.list_branches(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -468,7 +518,7 @@ def build_app(
 
     @app.post("/api/projects/{project_id}/base")
     async def set_base(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         data = await request.json()
         name = (data.get("branch") or "").strip()
         try:
@@ -480,14 +530,14 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/messages")
     async def messages(project_id: int, request: Request) -> list[dict]:
-        current_user(request)
+        _require_project(request, project_id)
         return [
             {"role": m["role"], "content": m["content"]} for m in db.list_messages(conn, project_id)
         ]
 
     @app.post("/api/projects/{project_id}/clear")
     async def clear_chat(project_id: int, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             return await pm.clear_chat(project_id)
         except (ProjectError, WorkspaceError) as exc:
@@ -495,7 +545,7 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/commits/{sha}/diff")
     async def commit_diff(project_id: int, sha: str, request: Request) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             return await pm.commit_diff(project_id, sha)
         except (ProjectError, WorkspaceError) as exc:
@@ -503,7 +553,7 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/tree")
     async def project_tree(project_id: int, request: Request, path: str = "") -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             return await pm.list_tree(project_id, path)
         except (ProjectError, WorkspaceError) as exc:
@@ -511,7 +561,7 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/file")
     async def project_file(project_id: int, request: Request, path: str) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             return await pm.read_file(project_id, path)
         except (ProjectError, WorkspaceError) as exc:
@@ -519,7 +569,7 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/raw")
     async def project_raw(project_id: int, request: Request, path: str) -> FileResponse:
-        current_user(request)
+        _require_project(request, project_id)
         try:
             target = await pm.raw_file(project_id, path)
         except (ProjectError, WorkspaceError) as exc:
@@ -552,7 +602,7 @@ def build_app(
     @app.get("/api/projects/{project_id}/clients")
     async def project_clients(project_id: int, request: Request) -> list[dict]:
         """Connected clients that hold a mirror of this project."""
-        current_user(request)
+        _require_project(request, project_id)
         project = _mirror_project(project_id)
         holders: list[dict] = []
         for c in registry.list():
@@ -567,7 +617,7 @@ def build_app(
     @app.get("/api/projects/{project_id}/clients/{name}/mirror")
     async def client_mirror(project_id: int, name: str, request: Request) -> dict:
         """Flat file list of one client's mirror (the UI builds the tree)."""
-        current_user(request)
+        _require_project(request, project_id)
         try:
             m = await registry.mirror(name, project=_mirror_project(project_id))
         except ClientError as exc:
@@ -576,13 +626,13 @@ def build_app(
 
     @app.get("/api/projects/{project_id}/clients/{name}/file")
     async def client_file(project_id: int, name: str, request: Request, path: str) -> dict:
-        current_user(request)
+        _require_project(request, project_id)
         data = await _client_file(name, _mirror_project(project_id), path)
         return _display_blob(path, data)
 
     @app.get("/api/projects/{project_id}/clients/{name}/raw")
     async def client_raw(project_id: int, name: str, request: Request, path: str) -> Response:
-        current_user(request)
+        _require_project(request, project_id)
         data = await _client_file(name, _mirror_project(project_id), path)
         media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
         return Response(content=data, media_type=media_type)
@@ -590,7 +640,7 @@ def build_app(
     @app.post("/api/projects/{project_id}/clients/{name}/fetch")
     async def client_fetch(project_id: int, name: str, request: Request) -> dict:
         """Copy mirror files into the lab's working tree (web fetch_from_client)."""
-        current_user(request)
+        _require_project(request, project_id)
         from platform_client import manifest
 
         data = await request.json()
@@ -618,7 +668,7 @@ def build_app(
     @app.post("/api/projects/{project_id}/clients/{name}/clean")
     async def client_clean(project_id: int, name: str, request: Request) -> dict:
         """Delete the client's mirror of this project (files on the client)."""
-        current_user(request)
+        _require_project(request, project_id)
         try:
             result = await registry.clean(name, project=_mirror_project(project_id))
         except ClientError as exc:
@@ -629,25 +679,43 @@ def build_app(
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
-        if not websocket.session.get("user_id"):
+        uid = websocket.session.get("user_id")
+        user = auth.get_user(conn, uid) if uid else None
+        if user is None or user["blocked"]:
             await websocket.close(code=1008)
             return
+
+        def ws_can_access(project_id: object) -> bool:
+            row = db.get_project(conn, project_id) if isinstance(project_id, int) else None
+            return row is not None and _can_access(user, row)
+
+        def event_allowed(event: dict) -> bool:
+            pid = event.get("project_id")
+            return pid is None or ws_can_access(pid)
+
         await websocket.accept()
         async with bus.subscribe() as events:
-            pump = asyncio.create_task(_ws_pump(websocket, events))
+            pump = asyncio.create_task(_ws_pump(websocket, events, allowed=event_allowed))
             try:
                 while True:
                     msg = json.loads(await websocket.receive_text())
                     if msg.get("type") == "message":
                         pid, text = msg.get("project_id"), msg.get("text")
-                        if isinstance(pid, int) and isinstance(text, str) and text.strip():
+                        if (
+                            isinstance(pid, int)
+                            and isinstance(text, str)
+                            and text.strip()
+                            and ws_can_access(pid)
+                        ):
                             asyncio.create_task(_run_turn(pm, bus, pid, text))
                         else:
                             await websocket.send_text(
                                 json.dumps({"type": "error", "error": "bad message"})
                             )
                     elif msg.get("type") == "state":
-                        projects = [_project_dict(pm, r) for r in pm.discover()]
+                        projects = [
+                            _project_dict(pm, r) for r in pm.discover() if _can_access(user, r)
+                        ]
                         await websocket.send_text(
                             json.dumps({"type": "state", "projects": projects})
                         )
@@ -683,7 +751,7 @@ def build_app(
             capabilities=list(hello.get("capabilities") or []),
             send=send,
         )
-        await send({"type": "hello_ok", "name": name})
+        await send({"type": "hello_ok", "name": name, "lab": app.state.lab_id})
         await bus.publish({"type": "clients_changed"})
         try:
             while True:

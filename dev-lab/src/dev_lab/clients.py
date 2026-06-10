@@ -10,7 +10,10 @@ Wire protocol (JSON text frames; the lab owns this contract; ``task_id`` is a
 correlation id — fetches use it too):
 
   client → lab   {type: "hello", name, platform, capabilities, token?}
-  lab → client   {type: "hello_ok", name}            # final (deduped) name
+  lab → client   {type: "hello_ok", name, lab}       # final (deduped) name + the
+                                                     # lab's stable id, which the
+                                                     # client uses to namespace
+                                                     # its mirrors per lab
   lab → client   {type: "task", task_id, project, command, manifest, preserve?}
   client → lab   {type: "need", task_id, paths}      # stale/missing in mirror
   lab → client   {type: "file", task_id, path, data} # base64; data=None + error on read failure

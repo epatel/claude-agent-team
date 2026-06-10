@@ -56,6 +56,9 @@ Each line is a settled choice no agent should reopen without flagging here.
 - 2026-06-08 — **Frontend is no-build vanilla JS** served as static files; assistant output rendered as markdown (`marked`) + mermaid, sanitized with `DOMPurify`; libs vendored under `static/vendor/` (offline-friendly, no Node toolchain).
 - 2026-06-08 — Documentation follows the memention.net **Context Cards** + **Shared Project Plan** patterns; feature-first / two-tier deferred until code exists.
 
+- 2026-06-10 — **Strict per-user project lists**: each project is owned by its creator (`projects.owner_id`, migration #8); non-supers see only their own projects (REST + console WS + event stream all gated; foreign ids 404), super-users see all, ownerless rows (auto-discovered checkouts) are super-only.
+- 2026-06-10 — **Per-lab client-mirror namespace**: the lab mints a stable id (`<labs>/.dev-lab/lab-id`), sends it in `hello_ok`, and clients key mirrors `<mirrors>/<lab-id>/<project>` — several labs can share one client machine without same-named projects colliding (no id → flat legacy layout).
+
 ## Current state / handoff
 
 **M0–M4 done** (branch `m0-skeleton`). **v2 web console done** (branch

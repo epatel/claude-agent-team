@@ -236,6 +236,27 @@ def test_clean_deletes_the_mirror(tmp_path):
     assert next(m for m in conn2.sent if m.get("type") == "clean_done")["ok"] is True
 
 
+def test_lab_id_namespaces_mirrors_per_lab(tmp_path):
+    """Two labs sharing this client must not collide on same-named projects."""
+    task = {"type": "task", "task_id": "t1", "project": "proj",
+            "command": "true", "manifest": {"a.txt": hashlib.sha256(b"x").hexdigest()}}
+    task["manifest"] = {}
+    conn = FakeConn([{"type": "hello_ok", "name": "mac", "lab": "lab-a"}, task])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+    assert (tmp_path / "mirrors" / "lab-a" / "proj").is_dir()
+
+    conn2 = FakeConn([{"type": "hello_ok", "name": "mac", "lab": "../evil"}, task])
+    asyncio.run(_runtime(tmp_path).handle(conn2))
+    # a hostile lab id is flattened to one path component
+    assert (tmp_path / "mirrors" / "evil" / "proj").is_dir()
+    assert not (tmp_path / "evil").exists()
+
+    # an older lab that sends no id keeps the flat layout
+    conn3 = FakeConn([{"type": "hello_ok", "name": "mac"}, task])
+    asyncio.run(_runtime(tmp_path).handle(conn3))
+    assert (tmp_path / "mirrors" / "proj").is_dir()
+
+
 def test_project_name_cannot_traverse_mirrors_root(tmp_path):
     task = {"type": "task", "task_id": "t1", "project": "../../evil",
             "command": "true", "manifest": {}}

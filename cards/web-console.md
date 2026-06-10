@@ -82,6 +82,15 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   and have any live session rejected. The ⚙ admin panel (sidebar, super-only)
   drives all of this. Migration #5 adds `users.is_super`/`users.blocked` + the
   `invites` table and retroactively promotes the earliest existing user to super.
+- **Strict per-user projects** — every project belongs to the user who created
+  it (`projects.owner_id`, migration #8): non-supers see and touch only their
+  own; super-users see everything. Ownerless rows (pre-migration, or checkouts
+  dropped into `labs/`) are **super-only**. Enforced by `_require_project`
+  on every project-scoped endpoint (foreign projects 404, hiding existence),
+  by the `/ws` handler (turns gated; `state` filtered), and by the event pump
+  (one user's console never receives another's chat/tool stream). Clone dir
+  names stay globally unique regardless — the `labs/` dir and client mirrors
+  need that.
 - **Projects** — auto-discovered from existing checkouts in `labs/`, or created by
   cloning a git URL. GitHub auth is **per project**: a token entered on create
   (or later via the project's token control) is stored on the project row and

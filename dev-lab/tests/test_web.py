@@ -254,7 +254,7 @@ def test_project_token_endpoint(tmp_path):
     assert r.status_code == 200 and r.json()["has_token"] is True
 
     # unknown project is a clean 4xx; the route requires auth
-    assert client.post("/api/projects/9999/token", json={"github_token": "x"}).status_code == 400
+    assert client.post("/api/projects/9999/token", json={"github_token": "x"}).status_code == 404
 
 
 def test_token_endpoint_requires_auth(tmp_path):
@@ -330,7 +330,7 @@ def test_clear_chat_endpoint(tmp_path):
     assert db.get_project(conn, pid)["last_session_id"] is None
 
     # unknown project is a clean 4xx, not a 500
-    assert client.post("/api/projects/9999/clear").status_code == 400
+    assert client.post("/api/projects/9999/clear").status_code == 404
 
 
 def test_clear_chat_requires_auth(tmp_path):
@@ -427,6 +427,40 @@ def test_ws_requires_auth(tmp_path):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ws"):
             pass
+
+
+def test_strict_project_isolation(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    app, _conn = _app(tmp_path)
+    a = TestClient(app)  # first user → super-user
+    a.post("/api/register", json={"username": "a", "password": "p"})
+    code_b = a.post("/api/admin/invites").json()["code"]
+    code_c = a.post("/api/admin/invites").json()["code"]
+    b = TestClient(app)
+    b.post("/api/register", json={"username": "b", "password": "p", "invite": code_b})
+    c = TestClient(app)
+    c.post("/api/register", json={"username": "c", "password": "p", "invite": code_c})
+
+    pid = b.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+
+    # each user sees only their own list; supers see everything
+    assert [p["name"] for p in b.get("/api/projects").json()] == ["myrepo"]
+    assert c.get("/api/projects").json() == []
+    assert "myrepo" in [p["name"] for p in a.get("/api/projects").json()]
+
+    # a foreign project is a 404 (existence hidden), for reads and actions alike
+    assert c.get(f"/api/projects/{pid}/tree").status_code == 404
+    assert c.get(f"/api/projects/{pid}/messages").status_code == 404
+    assert c.post(f"/api/projects/{pid}/reset").status_code == 404
+    assert c.delete(f"/api/projects/{pid}").status_code == 404
+    # while the owner and the super-user work normally
+    assert b.get(f"/api/projects/{pid}/tree").status_code == 200
+    assert a.get(f"/api/projects/{pid}/tree").status_code == 200
+
+    # a checkout dropped into labs/ has no owner — super-only
+    _src_repo(tmp_path / "labs" / "dropped")
+    assert "dropped" not in [p["name"] for p in b.get("/api/projects").json()]
+    assert "dropped" in [p["name"] for p in a.get("/api/projects").json()]
 
 
 def test_create_blank_project_endpoint(tmp_path):

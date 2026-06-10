@@ -119,7 +119,9 @@ class ProjectManager:
         """The model a project will run with: its own override, else the lab default."""
         return row["model"] or self.config.model
 
-    def create_blank(self, name: str, model: str | None = None) -> sqlite3.Row:
+    def create_blank(
+        self, name: str, model: str | None = None, owner_id: int | None = None
+    ) -> sqlite3.Row:
         """git-init a brand-new empty project under labs/<name> (no remote).
 
         For starting something from scratch in the lab. ``name`` is chosen
@@ -163,11 +165,17 @@ class ProjectManager:
             shutil.rmtree(dest, ignore_errors=True)
             raise ProjectError(f"initial commit failed: {commit.stderr.strip()}")
 
-        pid = db.create_project(self.conn, name=name, path=str(dest), model=model)
+        pid = db.create_project(
+            self.conn, name=name, path=str(dest), model=model, owner_id=owner_id
+        )
         return db.get_project(self.conn, pid)
 
     def create(
-        self, remote_url: str, github_token: str | None = None, model: str | None = None
+        self,
+        remote_url: str,
+        github_token: str | None = None,
+        model: str | None = None,
+        owner_id: int | None = None,
     ) -> sqlite3.Row:
         """Clone ``remote_url`` into labs/<repo-name> and register it.
 
@@ -210,6 +218,7 @@ class ProjectManager:
             remote_url=remote_url,
             github_token=token,
             model=model,
+            owner_id=owner_id,
         )
         return db.get_project(self.conn, pid)
 

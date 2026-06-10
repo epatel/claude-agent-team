@@ -74,6 +74,10 @@ class ClientRuntime:
         self.token = token
         self.command_timeout = command_timeout
         self.assigned_name: str | None = None
+        # The lab's stable id (from hello_ok) — namespaces this lab's mirrors so
+        # several labs can share one client machine without colliding on
+        # same-named projects. None (an older lab) keeps the flat layout.
+        self.lab_id: str | None = None
 
     async def handle(self, conn: Connection) -> None:
         """Run one connection: hello, then serve tasks until the lab closes it."""
@@ -90,6 +94,7 @@ class ClientRuntime:
         if reply.get("type") != "hello_ok":
             raise ProtocolError(f"expected hello_ok, got {reply.get('type')!r}")
         self.assigned_name = reply.get("name")
+        self.lab_id = str(reply["lab"]) if reply.get("lab") else None
         while True:
             try:
                 msg = await conn.receive()
@@ -105,8 +110,12 @@ class ClientRuntime:
                 await self._handle_clean(conn, msg)
 
     def _mirror_root(self, project: object) -> Path:
-        # The project name comes off the wire — keep it a single path component.
-        return self.mirrors_root / Path(str(project or "project")).name
+        # Lab id and project name come off the wire — keep each a single path
+        # component. Mirrors nest per lab so labs never share a directory.
+        root = self.mirrors_root
+        if self.lab_id:
+            root = root / Path(self.lab_id).name
+        return root / Path(str(project or "project")).name
 
     async def _handle_task(self, conn: Connection, msg: dict) -> None:
         task_id = msg["task_id"]

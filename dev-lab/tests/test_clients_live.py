@@ -84,7 +84,8 @@ def test_full_round_trip_over_real_websocket(served_app, tmp_path):
     assert result["ok"] is True
     assert result["changed"]["added"] == ["out.txt"]
     assert result["manifest_hash"]
-    mirror = tmp_path / "mirrors" / "project"
+    # mirrors are namespaced by the lab's stable id (sent in hello_ok)
+    mirror = tmp_path / "mirrors" / app.state.lab_id / "project"
     assert (mirror / "out.txt").read_text() == "alphabeta"
 
     # second run: warm mirror — only the edited file syncs, old artifact is gone

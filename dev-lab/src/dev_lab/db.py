@@ -113,6 +113,15 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE projects ADD COLUMN model TEXT;
         """,
     ),
+    (
+        8,
+        # Strict per-user project lists: every project belongs to the user who
+        # created it. NULL (pre-migration rows, auto-discovered checkouts) means
+        # "no owner" — visible to super-users only.
+        """
+        ALTER TABLE projects ADD COLUMN owner_id INTEGER REFERENCES users(id);
+        """,
+    ),
 ]
 
 
@@ -191,11 +200,12 @@ def create_project(
     remote_url: str | None = None,
     github_token: str | None = None,
     model: str | None = None,
+    owner_id: int | None = None,
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO projects (name, path, remote_url, github_token, model, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, path, remote_url, github_token, model, time.time()),
+        "INSERT INTO projects (name, path, remote_url, github_token, model, owner_id, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, path, remote_url, github_token, model, owner_id, time.time()),
     )
     conn.commit()
     return int(cur.lastrowid)
