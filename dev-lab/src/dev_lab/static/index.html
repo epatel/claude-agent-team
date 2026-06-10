@@ -9,7 +9,9 @@
   <link
     href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/style.css" />
+  <!-- Relative asset paths: the console may be served under a reverse-proxy
+       prefix (e.g. https://host/dev-lab/), not only at the root. -->
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body class="loading">
   <!-- LOGIN -->
@@ -122,15 +124,19 @@
                 width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
                 stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path
                 d="M1.5 13.5v-10a1 1 0 0 1 1-1h3.6l1.6 2h6.3a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11.5a1 1 0 0 1-1-1z"/></svg>browse files</button>
+            <button id="archive-btn" class="merge-btn ghost" hidden
+              title="Download the working tree as a zip (git internals and venv/cache dirs excluded)">download zip</button>
             <button id="fetch-btn" class="merge-btn ghost" hidden
               title="Fetch the latest commits from the remote without changing your files">fetch</button>
             <button id="pull-btn" class="merge-btn ghost" hidden
               title="Fetch and merge the remote base branch into this checkout">pull</button>
             <button id="push-btn" class="merge-btn ghost" hidden
               title="Push this branch's commits to the remote (needs a GitHub token)">push</button>
+            <button id="reset-btn" class="merge-btn ghost" hidden
+              title="Discard ALL uncommitted changes in the working tree (hard reset + remove untracked files). Commits are kept.">reset</button>
             <div class="repo-actions-break" aria-hidden="true"></div>
-            <button id="merge-base-btn" class="merge-btn ghost" hidden
-              title="Merge the base branch INTO this chat branch — pull base's latest work on top of your session. Aborts on conflict.">merge base → branch</button>
+            <button id="rebase-btn" class="merge-btn ghost" hidden
+              title="Rebase this chat branch onto the base branch — replay the session's commits on top of base's latest. On conflict nothing changes and you can hand resolution to the agent in chat.">rebase on base</button>
             <button id="merge-btn" class="merge-btn ghost" hidden
               title="Merge this chat branch INTO the base branch — land your session's work. Aborts on conflict.">merge branch → base</button>
           </div>
@@ -197,6 +203,9 @@
       <span id="files-title" class="modal-title">files</span>
       <button type="button" class="modal-close ghost" data-close="files-dialog">close</button>
     </div>
+    <!-- Source tabs: the lab's working tree plus any connected platform client
+         holding a mirror of this project (cards/extension-clients.md). -->
+    <div id="files-sources" class="files-sources" hidden></div>
     <div id="files-context" class="files-context" hidden></div>
     <div class="modal-body files-body">
       <div id="file-tree" class="file-tree"></div>
@@ -217,11 +226,11 @@
     </div>
   </dialog>
 
-  <script src="/vendor/marked.min.js"></script>
-  <script src="/vendor/purify.min.js"></script>
-  <script src="/vendor/mermaid.min.js"></script>
-  <script src="/vendor/highlight.min.js"></script>
-  <script src="/diff.js"></script>
-  <script src="/app.js"></script>
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="vendor/mermaid.min.js"></script>
+  <script src="vendor/highlight.min.js"></script>
+  <script src="diff.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

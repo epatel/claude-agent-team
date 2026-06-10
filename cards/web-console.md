@@ -40,11 +40,21 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   the project's default branch (`main`/`master`) locally, aborting on conflict,
   and restores the chat branch so the session can continue. Pushing the result to
   the remote is not wired yet (see the plan's open questions).
-- **Refreshing the branch.** The mirror action **merge base → branch**
-  (`POST /api/projects/{id}/merge-base`) merges the base branch *into* the chat
-  branch — a local "pull into the project branch" so a long-running session keeps
-  working on top of base's latest commits. Like merge → base it aborts on
-  conflict; it leaves the working tree on the chat branch.
+- **Refreshing the branch.** **rebase on base** (`POST /api/projects/{id}/rebase`)
+  replays the chat branch's commits on top of base's latest, keeping the branch
+  linear (it replaced a short-lived merge-base→branch action, 2026-06-10). On
+  conflict the rebase is aborted — the branch is untouched — and the response
+  carries `status: "conflicts"` + the conflicted paths; the UI then offers to
+  hand the whole job to the project's agent as a chat message ("rebase and
+  resolve …"), which is the conflict-resolution path. The working tree is left
+  on the chat branch either way.
+- **Repair & download.** **reset** (`POST …/reset`, confirm-gated) discards all
+  uncommitted changes and untracked files in the working tree (ignored files and
+  commits survive) — the cleanup for a tree left dirty by a crashed run.
+  **download zip** (`GET …/archive`) streams the working tree as a zip
+  (`Content-Disposition` attachment), excluding the manifest-sync ignores
+  (`.git`, `.venv`, `__pycache__`, …) so the download matches what the file
+  browser shows.
 - **Auth** — multi-user accounts (username + password, scrypt-hashed); a signed
   session cookie (Starlette `SessionMiddleware`, secret in `<labs>/.dev-lab/secret`).
   The `/ws` endpoint is gated by the same cookie.
@@ -82,6 +92,19 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   checkout" hint, instead of silently looking complete. (Earlier this read the
   raw working tree with no annotation, so a stale-branch checkout looked like the
   whole repo and the divergence was invisible even after pull/push/merge.)
+- **Browsing client mirrors.** The files dialog grows **source tabs** when any
+  connected platform client holds a mirror of the project (`GET …/clients`
+  probes each connected client). Selecting a client tab lists its mirror —
+  run artifacts included — via `GET …/clients/{name}/mirror` (flat path list;
+  the UI nests it; no statuses, it's not a git tree) with file view / raw
+  bytes via `…/clients/{name}/file|raw?path=`. A **fetch → lab** button on a
+  viewed file copies it into the lab's working tree (`POST
+  …/clients/{name}/fetch {paths}` — the web twin of the agent's
+  `fetch_from_client` tool; it lands in the tree, so it commits with the
+  session unless .gitignored). A **remove mirror** button (confirm dialog)
+  deletes the project's files from the client machine (`POST
+  …/clients/{name}/clean`); the client stays connected and re-syncs on its
+  next run.
 - **Rendering** — assistant output is untrusted markdown → `marked` →
   **`DOMPurify.sanitize`** → mermaid (`securityLevel: "strict"`) for ```mermaid
   blocks. Frontend libs are vendored under `static/vendor/` (no build, offline-ok).

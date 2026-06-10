@@ -114,3 +114,21 @@ def test_full_round_trip_over_real_websocket(served_app, tmp_path):
     ).result(timeout=30)
     assert fetched["files"]["out2.txt"] == b"ALPHA2"
     assert "nope.txt" in fetched["errors"]
+
+    # the mirror can be inspected (file browser) …
+    listing = asyncio.run_coroutine_threadsafe(
+        registry.mirror("smoke", project="project"), server_loop
+    ).result(timeout=30)
+    assert listing["exists"] is True
+    assert {"a.txt", "sub/b.txt", "out2.txt"} <= set(listing["manifest"])
+    absent = asyncio.run_coroutine_threadsafe(
+        registry.mirror("smoke", project="never-synced"), server_loop
+    ).result(timeout=30)
+    assert absent == {"exists": False, "manifest": {}}
+
+    # … and cleaned: the mirror directory is gone from the client machine
+    cleaned = asyncio.run_coroutine_threadsafe(
+        registry.clean("smoke", project="project"), server_loop
+    ).result(timeout=30)
+    assert cleaned["ok"] is True
+    assert not mirror.exists()

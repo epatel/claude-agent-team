@@ -10,9 +10,11 @@ lock.
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 import sqlite3
 import subprocess
+import zipfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from . import db
 from .agent import run_task as _run_task
 from .config import KNOWN_MODEL_IDS, Config
 from .session import LabSession, RunTask, TurnResult
-from .workspace import Workspace, WorkspaceError
+from .workspace import Workspace, WorkspaceConflict, WorkspaceError
 
 
 class ProjectError(RuntimeError):
@@ -295,14 +297,17 @@ class ProjectManager:
             ws.checkout(branch)  # restore so the session can keep going
         return {"base": base, "branch": branch, "commit": merged}
 
-    async def merge_base_into_branch(self, project_id: int) -> dict:
-        """Merge a project's base branch into its chat branch (locally) — a pull.
+    async def rebase_onto_base(self, project_id: int) -> dict:
+        """Rebase a project's chat branch onto its base branch (locally).
 
-        The mirror of ``merge_to_base``: instead of landing the chat branch on
-        base, it brings base's commits *into* the chat branch so the session
-        keeps working on an up-to-date branch. Checks out the chat branch and
-        merges base into it (``workspace.merge`` aborts and raises on conflict);
-        the working tree is left on the chat branch, ready for the next turn.
+        Replaces the earlier merge-base-into-branch action (2026-06-10): the
+        session's commits are replayed on top of base's latest, keeping the
+        chat branch linear instead of accumulating merge knots. On conflict
+        the rebase is aborted (the branch is untouched) and the conflicted
+        paths are returned with ``status: "conflicts"`` — the UI offers to
+        hand resolution to the project's agent in chat, which can redo the
+        rebase and resolve the conflicts itself. The working tree is left on
+        the chat branch either way.
         """
         session = self.open(project_id)
         ws = session.workspace
@@ -313,9 +318,54 @@ class ProjectManager:
                 raise ProjectError("no work branch yet — start a chat first")
             base = self._base_branch(ws, project_id)
             if base == branch:
-                raise ProjectError("the chat branch is the base branch; nothing to merge")
-            merged = ws.merge(branch, base, message=f"Merge {base} into {branch}")
-        return {"base": base, "branch": branch, "commit": merged}
+                raise ProjectError("the chat branch is the base branch; nothing to rebase")
+            try:
+                commit = ws.rebase(branch, onto=base)
+            except WorkspaceConflict as exc:
+                return {
+                    "status": "conflicts", "base": base, "branch": branch,
+                    "files": exc.files,
+                }
+        return {"status": "ok", "base": base, "branch": branch, "commit": commit}
+
+    async def reset_working_tree(self, project_id: int) -> dict:
+        """Discard uncommitted changes in a project's working tree.
+
+        Hard reset + clean of untracked files (ignored files survive) on
+        whatever branch is checked out — the repair action for a tree left
+        dirty by a crashed run or stray artifacts. Commits are never touched.
+        """
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            branch = ws.current_branch()
+            commit = ws.reset_hard()
+        return {"branch": branch, "commit": commit}
+
+    async def archive(self, project_id: int) -> tuple[str, bytes]:
+        """Zip a project's working tree for download.
+
+        Contains what the file browser shows: the checked-out tree minus the
+        sync ignores (``.git``, ``.venv``, ``__pycache__``, …) — reusing the
+        manifest walk so "what syncs" and "what downloads" stay one notion.
+        """
+        from platform_client import manifest
+
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            branch = ws.current_branch()
+
+            def _zip() -> bytes:
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for rel in sorted(manifest.scan(ws.path)):
+                        zf.write(ws.path / rel, rel)
+                return buf.getvalue()
+
+            data = await asyncio.to_thread(_zip)
+        name = f"{ws.path.name}-{branch.replace('/', '-')}.zip"
+        return name, data
 
     async def pull_base(self, project_id: int) -> dict:
         """Pull the project's base branch from origin (locally, fast-forward only)."""
@@ -353,6 +403,10 @@ class ProjectManager:
         if row is None:
             raise ProjectError(f"no such project: {project_id}")
         return Workspace(Path(row["path"]))
+
+    def project_root(self, project_id: int) -> Path:
+        """A project's working-tree path; its name keys client mirrors."""
+        return self._workspace(project_id).path
 
     async def commit_diff(self, project_id: int, sha: str) -> dict:
         """Subject + unified patch for a single commit in a project."""

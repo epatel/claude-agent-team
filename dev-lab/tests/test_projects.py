@@ -96,7 +96,16 @@ def test_merge_without_work_errors(tmp_path):
         asyncio.run(pm.merge_to_base(pid))
 
 
-def test_merge_base_into_branch_pulls_base_commits(tmp_path):
+def _land_base_commit(clone: Path, base: str, branch: str, filename: str, content: str) -> None:
+    """Commit ``filename`` on ``base`` and return the checkout to ``branch``."""
+    subprocess.run(["git", "-C", str(clone), "checkout", "-q", base], check=True)
+    (clone / filename).write_text(content)
+    subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(clone), "commit", "-q", "-m", "base work"], check=True)
+    subprocess.run(["git", "-C", str(clone), "checkout", "-q", branch], check=True)
+
+
+def test_rebase_onto_base_replays_chat_commits(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)
 
@@ -111,23 +120,24 @@ def test_merge_base_into_branch_pulls_base_commits(tmp_path):
     clone = labs / "src"
     base = pm.effective_base(db.get_project(conn, pid))
     branch = pm.open(pid).branch
-    # land a commit on the base branch that the chat branch doesn't have yet
-    subprocess.run(["git", "-C", str(clone), "checkout", "-q", base], check=True)
-    (clone / "base_only.txt").write_text("b\n")
-    subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(clone), "commit", "-q", "-m", "base work"], check=True)
-    subprocess.run(["git", "-C", str(clone), "checkout", "-q", branch], check=True)
+    _land_base_commit(clone, base, branch, "base_only.txt", "b\n")
 
-    result = asyncio.run(pm.merge_base_into_branch(pid))
+    result = asyncio.run(pm.rebase_onto_base(pid))
 
+    assert result["status"] == "ok"
     assert result["base"] == base
     assert result["branch"] == branch
-    # the chat branch now carries the base-only commit
+    # the chat branch now sits on top of base: it has the base-only commit …
     got = subprocess.run(
         ["git", "-C", str(clone), "cat-file", "-e", f"{branch}:base_only.txt"]
     ).returncode
     assert got == 0
-    # and the working tree is left back on the chat branch for the next turn
+    # … with linear history (base's HEAD is an ancestor of the chat branch)
+    linear = subprocess.run(
+        ["git", "-C", str(clone), "merge-base", "--is-ancestor", base, branch]
+    ).returncode
+    assert linear == 0
+    # and the working tree is left on the chat branch for the next turn
     head = subprocess.run(
         ["git", "-C", str(clone), "rev-parse", "--abbrev-ref", "HEAD"],
         capture_output=True,
@@ -136,13 +146,82 @@ def test_merge_base_into_branch_pulls_base_commits(tmp_path):
     assert head == branch
 
 
-def test_merge_base_without_work_errors(tmp_path):
+def test_rebase_conflict_aborts_and_reports_files(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "README.md").write_text("chat version\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, conn, labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+    asyncio.run(pm.run_turn(pid, "edit readme"))  # edits README.md on chat/<ts>
+
+    clone = labs / "src"
+    base = pm.effective_base(db.get_project(conn, pid))
+    branch = pm.open(pid).branch
+    before = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", branch], capture_output=True, text=True
+    ).stdout.strip()
+    _land_base_commit(clone, base, branch, "README.md", "base version\n")
+
+    result = asyncio.run(pm.rebase_onto_base(pid))
+
+    assert result["status"] == "conflicts"
+    assert result["files"] == ["README.md"]
+    # the rebase was aborted: branch unmoved, no rebase left in progress
+    after = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", branch], capture_output=True, text=True
+    ).stdout.strip()
+    assert after == before
+    assert not (clone / ".git" / "rebase-merge").exists()
+    assert not (clone / ".git" / "rebase-apply").exists()
+
+
+def test_rebase_without_work_errors(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)
     pm, _conn, _labs = _pm(tmp_path)
     pid = pm.create(str(src))["id"]
     with pytest.raises(ProjectError, match="no work branch yet"):
-        asyncio.run(pm.merge_base_into_branch(pid))
+        asyncio.run(pm.rebase_onto_base(pid))
+
+
+def test_reset_working_tree_discards_uncommitted_changes(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    clone = labs / "src"
+    (clone / "README.md").write_text("dirtied\n")
+    (clone / "stray.txt").write_text("untracked\n")
+
+    result = asyncio.run(pm.reset_working_tree(pid))
+
+    assert result["commit"]
+    assert (clone / "README.md").read_text() == "seed\n"  # tracked change discarded
+    assert not (clone / "stray.txt").exists()  # untracked file removed
+
+
+def test_archive_zips_working_tree_without_git(tmp_path):
+    import io
+    import zipfile
+
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    (labs / "src" / "uncommitted.txt").write_text("included\n")
+
+    name, data = asyncio.run(pm.archive(pid))
+
+    assert name.startswith("src-") and name.endswith(".zip")
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+        assert "README.md" in names
+        assert "uncommitted.txt" in names  # working tree, not a commit
+        assert not any(n.startswith(".git") for n in names)
 
 
 def test_set_base_branch_validates_and_persists(tmp_path):

@@ -57,6 +57,11 @@ sequenceDiagram
   binary or report lands where the agent — and the next commit — can see it;
   .gitignore what shouldn't land in history). Oversized files (> the manifest
   size cap) are refused per path.
+- **Inspecting and cleaning mirrors** — the lab can ask a client what its
+  mirror of a project holds (`mirror` → manifest, no content; the web console's
+  file-browser source tabs are built on this) and delete a project's mirror
+  outright (`clean` — exposed as "remove mirror" in the console; the client
+  stays connected and re-syncs on its next run).
 - **Shared scaffold** — `extensions/platform-client` (package
   `platform_client`) owns manifest sync, the runtime, and the
   `platform-client connect --lab <url>` CLI. A new client is configuration

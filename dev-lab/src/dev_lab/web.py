@@ -9,20 +9,45 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
 
 from . import auth, db
-from .clients import ClientRegistry
+from .clients import ClientError, ClientRegistry
 from .config import KNOWN_MODELS, Config
 from .events import EventBus
 from .projects import ProjectError, ProjectManager
 from .workspace import WorkspaceError
+
+
+def _display_blob(path: str, data: bytes, *, max_bytes: int = 512 * 1024) -> dict:
+    """Shape one file's bytes for the browser, like ``Workspace.read_file``.
+
+    Used for files that live on a platform client (fetched over the socket),
+    where there is no local path to read — same binary/oversize flags so the
+    file viewer renders both sources identically.
+    """
+    size = len(data)
+    chunk = data[:max_bytes]
+    if b"\x00" in chunk:
+        return {"path": path, "binary": True, "size": size, "truncated": False, "content": ""}
+    try:
+        text = chunk.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"path": path, "binary": True, "size": size, "truncated": False, "content": ""}
+    return {
+        "path": path,
+        "binary": False,
+        "size": size,
+        "truncated": size > max_bytes,
+        "content": text,
+    }
 
 
 def _project_dict(pm: ProjectManager, row: sqlite3.Row) -> dict:
@@ -288,15 +313,41 @@ def build_app(
         await bus.publish({"type": "projects_changed"})
         return result
 
-    @app.post("/api/projects/{project_id}/merge-base")
-    async def merge_base_project(project_id: int, request: Request) -> dict:
+    @app.post("/api/projects/{project_id}/rebase")
+    async def rebase_project(project_id: int, request: Request) -> dict:
+        """Rebase the chat branch onto base; conflicts come back as data."""
         current_user(request)
         try:
-            result = await pm.merge_base_into_branch(project_id)
+            result = await pm.rebase_onto_base(project_id)
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
         return result
+
+    @app.post("/api/projects/{project_id}/reset")
+    async def reset_project(project_id: int, request: Request) -> dict:
+        """Discard uncommitted working-tree changes (commits are kept)."""
+        current_user(request)
+        try:
+            result = await pm.reset_working_tree(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
+    @app.get("/api/projects/{project_id}/archive")
+    async def archive_project(project_id: int, request: Request) -> Response:
+        """The working tree as a zip download (sync ignores excluded)."""
+        current_user(request)
+        try:
+            name, data = await pm.archive(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
 
     @app.post("/api/projects/{project_id}/pull")
     async def pull_project(project_id: int, request: Request) -> dict:
@@ -395,6 +446,107 @@ def build_app(
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
         return FileResponse(target)
+
+    # --- Client mirrors: browse / fetch back / clean -----------------------
+    # The file browser can show a connected platform client's mirror of a
+    # project (run artifacts included) next to the lab's own working tree.
+
+    def _mirror_project(project_id: int) -> str:
+        """The mirror key for a project (its directory name) or 404."""
+        try:
+            return pm.project_root(project_id).name
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    async def _client_file(name: str, project: str, path: str) -> bytes:
+        """One file's bytes from a client mirror, via the fetch frames."""
+        try:
+            fetched = await registry.fetch(name, project=project, paths=[path])
+        except ClientError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if path in fetched["errors"]:
+            raise HTTPException(400, fetched["errors"][path])
+        if path not in fetched["files"]:
+            raise HTTPException(400, f"client sent no data for {path!r}")
+        return fetched["files"][path]
+
+    @app.get("/api/projects/{project_id}/clients")
+    async def project_clients(project_id: int, request: Request) -> list[dict]:
+        """Connected clients that hold a mirror of this project."""
+        current_user(request)
+        project = _mirror_project(project_id)
+        holders: list[dict] = []
+        for c in registry.list():
+            try:
+                m = await registry.mirror(c["name"], project=project, timeout=15.0)
+            except ClientError:
+                continue  # raced a disconnect — omit rather than fail the list
+            if m["exists"]:
+                holders.append({"name": c["name"], "platform": c["platform"]})
+        return holders
+
+    @app.get("/api/projects/{project_id}/clients/{name}/mirror")
+    async def client_mirror(project_id: int, name: str, request: Request) -> dict:
+        """Flat file list of one client's mirror (the UI builds the tree)."""
+        current_user(request)
+        try:
+            m = await registry.mirror(name, project=_mirror_project(project_id))
+        except ClientError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"exists": m["exists"], "paths": sorted(m["manifest"])}
+
+    @app.get("/api/projects/{project_id}/clients/{name}/file")
+    async def client_file(project_id: int, name: str, request: Request, path: str) -> dict:
+        current_user(request)
+        data = await _client_file(name, _mirror_project(project_id), path)
+        return _display_blob(path, data)
+
+    @app.get("/api/projects/{project_id}/clients/{name}/raw")
+    async def client_raw(project_id: int, name: str, request: Request, path: str) -> Response:
+        current_user(request)
+        data = await _client_file(name, _mirror_project(project_id), path)
+        media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        return Response(content=data, media_type=media_type)
+
+    @app.post("/api/projects/{project_id}/clients/{name}/fetch")
+    async def client_fetch(project_id: int, name: str, request: Request) -> dict:
+        """Copy mirror files into the lab's working tree (web fetch_from_client)."""
+        current_user(request)
+        from platform_client import manifest
+
+        data = await request.json()
+        paths = [str(p) for p in data.get("paths") or []]
+        if not paths:
+            raise HTTPException(400, "paths required")
+        try:
+            root = pm.project_root(project_id)
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        try:
+            fetched = await registry.fetch(name, project=root.name, paths=paths)
+        except ClientError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        written: list[str] = []
+        errors = dict(fetched["errors"])
+        for path, blob in fetched["files"].items():
+            try:
+                manifest.write_file(root, path, blob)
+                written.append(path)
+            except manifest.PathOutsideRoot:
+                errors[path] = "path escapes the project root"
+        return {"written": sorted(written), "errors": errors}
+
+    @app.post("/api/projects/{project_id}/clients/{name}/clean")
+    async def client_clean(project_id: int, name: str, request: Request) -> dict:
+        """Delete the client's mirror of this project (files on the client)."""
+        current_user(request)
+        try:
+            result = await registry.clean(name, project=_mirror_project(project_id))
+        except ClientError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not result["ok"]:
+            raise HTTPException(400, result.get("error") or "clean failed on the client")
+        return {"ok": True}
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:

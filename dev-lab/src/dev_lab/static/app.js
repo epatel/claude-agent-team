@@ -1,6 +1,9 @@
 "use strict";
 
 const $ = (s) => document.querySelector(s);
+// Path prefix the console is served under ("" at the root, "/dev-lab" behind a
+// reverse proxy). Derived from the page URL; prepended to every API/WS path.
+const BASE = new URL(".", location.href).pathname.replace(/\/$/, "");
 const state = { user: null, isSuper: false, needsInvite: true, projects: [], clients: [], activeId: null, ws: null, assistantBody: null, activity: null, text: "", models: [], defaultModel: null };
 
 mermaid.initialize({
@@ -50,7 +53,7 @@ function confirmDialog({ title = "confirm", message = "", confirmText = "confirm
 }
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
+  const r = await fetch(BASE + path, { headers: { "content-type": "application/json" }, ...opts });
   if (!r.ok) {
     const e = await r.json().catch(() => ({ detail: r.statusText }));
     throw new Error(e.detail || r.statusText);
@@ -272,10 +275,12 @@ async function openProject(id) {
   $("#chat-form").hidden = false;
   $("#clear-chat-btn").hidden = false;
   $("#browse-btn").hidden = false;
+  $("#archive-btn").hidden = false;
   $("#fetch-btn").hidden = false;
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
-  $("#merge-base-btn").hidden = false;
+  $("#reset-btn").hidden = false;
+  $("#rebase-btn").hidden = false;
   $("#merge-btn").hidden = false;
   $("#head-tabs").hidden = false;
   renderToken(p);
@@ -487,16 +492,62 @@ $("#push-btn").addEventListener("click", () => {
   });
 });
 
-$("#merge-base-btn").addEventListener("click", () => {
+$("#rebase-btn").addEventListener("click", () => {
   if (state.activeId == null) return;
-  withButton($("#merge-base-btn"), "merging", async () => {
+  withButton($("#rebase-btn"), "rebasing", async () => {
     try {
-      const r = await api(`/api/projects/${state.activeId}/merge-base`, { method: "POST" });
-      systemLine(`✓ merged ${r.base} into ${r.branch} @ ${r.commit.slice(0, 10)}`);
+      const r = await api(`/api/projects/${state.activeId}/rebase`, { method: "POST" });
+      if (r.status === "conflicts") {
+        // The rebase was aborted, the branch is untouched. Offer to hand the
+        // whole thing — rebase plus conflict resolution — to the agent.
+        systemLine(`✗ rebase of ${r.branch} onto ${r.base} hit conflicts: ${r.files.join(", ")}`, true);
+        const ok = await confirmDialog({
+          title: "rebase conflicts",
+          message: `Rebasing ${r.branch} onto ${r.base} conflicts in: ${r.files.join(", ")}. ` +
+            "Ask the agent to do the rebase and resolve the conflicts in chat?",
+          confirmText: "ask the agent",
+          danger: false,
+        });
+        if (ok) {
+          sendChat(
+            `Rebase the current branch ${r.branch} onto ${r.base} and resolve the conflicts ` +
+            `(expected in: ${r.files.join(", ")}). Keep the intent of both sides; explain how ` +
+            "you resolved each conflict. Do not push.",
+          );
+        }
+        return;
+      }
+      systemLine(`✓ rebased ${r.branch} onto ${r.base} @ ${r.commit.slice(0, 10)}`);
     } catch (err) {
-      systemLine(`✗ merge base failed: ${err.message}`, true);
+      systemLine(`✗ rebase failed: ${err.message}`, true);
     }
   });
+});
+
+$("#reset-btn").addEventListener("click", async () => {
+  if (state.activeId == null) return;
+  const ok = await confirmDialog({
+    title: "reset working tree",
+    message: "Discard ALL uncommitted changes and untracked files in this project's " +
+      "working tree? Commits are kept. This cannot be undone.",
+    confirmText: "reset",
+  });
+  if (!ok) return;
+  withButton($("#reset-btn"), "resetting", async () => {
+    try {
+      const r = await api(`/api/projects/${state.activeId}/reset`, { method: "POST" });
+      systemLine(`✓ reset working tree on ${r.branch} @ ${r.commit.slice(0, 10)}`);
+    } catch (err) {
+      systemLine(`✗ reset failed: ${err.message}`, true);
+    }
+  });
+});
+
+$("#archive-btn").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  // A plain navigation: the endpoint answers with Content-Disposition
+  // attachment, so the browser downloads without leaving the page.
+  window.location.assign(`${BASE}/api/projects/${state.activeId}/archive`);
 });
 
 $("#merge-btn").addEventListener("click", () => {
@@ -541,14 +592,22 @@ textarea.addEventListener("input", () => {
 textarea.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#chat-form").requestSubmit(); }
 });
+// Send a message to the active project's agent — used by the chat form and by
+// repo actions that hand work to the agent (e.g. rebase-conflict resolution).
+function sendChat(text) {
+  if (!text || state.activeId == null || !state.ws) return;
+  setTab("chat");
+  addMessage("user", text);
+  state.ws.send(JSON.stringify({ type: "message", project_id: state.activeId, text }));
+}
+
 $("#chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = textarea.value.trim();
-  if (!text || state.activeId == null || !state.ws) return;
+  if (!text) return;
   textarea.value = "";
   textarea.style.height = "auto";
-  addMessage("user", text);
-  state.ws.send(JSON.stringify({ type: "message", project_id: state.activeId, text }));
+  sendChat(text);
 });
 
 function scrollBottom() {
@@ -580,7 +639,7 @@ async function renderMarkdown(el, text, baseDir) {
     for (const img of el.querySelectorAll("img")) {
       const rel = resolveRepoPath(baseDir, img.getAttribute("src") || "");
       if (rel != null) {
-        img.src = `/api/projects/${state.activeId}/raw?path=${encodeURIComponent(rel)}`;
+        img.src = `${BASE}/api/projects/${state.activeId}/raw?path=${encodeURIComponent(rel)}`;
       }
     }
   }
@@ -612,7 +671,7 @@ async function renderMarkdown(el, text, baseDir) {
 /* ---------- websocket ---------- */
 function connectWs() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const ws = new WebSocket(`${proto}://${location.host}${BASE}/ws`);
   state.ws = ws;
   ws.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
   ws.onclose = () => { state.ws = null; setTimeout(connectWs, 1500); };
@@ -833,26 +892,68 @@ async function openDiff(projectId, sha) {
   }
 }
 
-/* repo browser — lazy one-level-at-a-time tree over the working clone */
-const fileBrowser = { activePath: null };
+/* repo browser — lazy one-level-at-a-time tree over the working clone, plus
+   tabs for any connected platform client holding a mirror of the project */
+const fileBrowser = { activePath: null, source: "lab", clients: [] };
 
 $("#browse-btn").addEventListener("click", () => {
   if (state.activeId != null) openFiles();
 });
 
 async function openFiles() {
-  fileBrowser.activePath = null;
+  fileBrowser.source = "lab";
+  fileBrowser.clients = [];
   const p = state.projects.find((x) => x.id === state.activeId);
   $("#files-title").textContent = (p ? p.name : "files") + " — files";
+  $("#files-sources").hidden = true;
+  $("#files-dialog").showModal();
+  loadSource();
+  // Probe for client mirrors in parallel — the lab tree must not wait on it.
+  api(`/api/projects/${state.activeId}/clients`)
+    .then((clients) => { fileBrowser.clients = clients; renderSourceTabs(); })
+    .catch(() => {});
+}
+
+function renderSourceTabs() {
+  const el = $("#files-sources");
+  el.innerHTML = "";
+  el.hidden = fileBrowser.clients.length === 0;
+  const tabs = [{ name: "lab", label: "lab" }].concat(
+    fileBrowser.clients.map((c) => ({ name: c.name, label: `${c.name} (${c.platform})` })),
+  );
+  for (const t of tabs) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "files-source ghost" + (fileBrowser.source === t.name ? " active" : "");
+    btn.textContent = t.label;
+    btn.addEventListener("click", () => {
+      if (fileBrowser.source === t.name) return;
+      fileBrowser.source = t.name;
+      renderSourceTabs();
+      loadSource();
+    });
+    el.appendChild(btn);
+  }
+}
+
+async function loadSource() {
+  fileBrowser.activePath = null;
   $("#file-content").innerHTML = '<div class="file-empty">select a file to view it</div>';
   const tree = $("#file-tree");
   tree.innerHTML = '<div class="modal-loading">loading…</div>';
   $("#files-context").hidden = true;
-  $("#files-dialog").showModal();
   try {
-    const { entries, branch, base, missing } = await api(`/api/projects/${state.activeId}/tree`);
-    renderFilesContext(branch, base, missing);
-    renderTree(tree, entries, 0);
+    if (fileBrowser.source === "lab") {
+      const { entries, branch, base, missing } = await api(`/api/projects/${state.activeId}/tree`);
+      renderFilesContext(branch, base, missing);
+      renderTree(tree, entries, 0);
+    } else {
+      const { paths } = await api(
+        `/api/projects/${state.activeId}/clients/${encodeURIComponent(fileBrowser.source)}/mirror`
+      );
+      renderMirrorContext(paths.length);
+      renderTree(tree, mirrorEntries(paths), 0);
+    }
   } catch (err) {
     tree.innerHTML = "";
     const d = document.createElement("div");
@@ -860,6 +961,75 @@ async function openFiles() {
     d.textContent = "failed: " + err.message;
     tree.appendChild(d);
   }
+}
+
+// The mirror endpoint returns a flat sorted path list; nest it into the same
+// {name, path, type, children} entries the tree renderer walks (dirs first).
+function mirrorEntries(paths) {
+  const root = { dirs: new Map(), files: [] };
+  for (const path of paths) {
+    const parts = path.split("/");
+    let node = root;
+    for (const part of parts.slice(0, -1)) {
+      if (!node.dirs.has(part)) node.dirs.set(part, { dirs: new Map(), files: [] });
+      node = node.dirs.get(part);
+    }
+    node.files.push(parts[parts.length - 1]);
+  }
+  const toEntries = (node, prefix) => {
+    const dirs = [...node.dirs.keys()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const files = node.files.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    return dirs.map((name) => ({
+      name,
+      path: prefix + name,
+      type: "dir",
+      children: toEntries(node.dirs.get(name), prefix + name + "/"),
+    })).concat(files.map((name) => ({ name, path: prefix + name, type: "file" })));
+  };
+  return toEntries(root, "");
+}
+
+function renderMirrorContext(fileCount) {
+  const el = $("#files-context");
+  el.textContent = "";
+  const b = document.createElement("span");
+  b.className = "files-branch";
+  b.textContent = `mirror on ${fileBrowser.source} · ${fileCount} file${fileCount === 1 ? "" : "s"}`;
+  el.appendChild(b);
+  const rm = document.createElement("button");
+  rm.type = "button";
+  rm.className = "danger files-mirror-remove";
+  rm.textContent = "remove mirror";
+  rm.title = "Delete this project's files from the client machine";
+  rm.addEventListener("click", () => withButton(rm, "removing…", removeMirror));
+  el.appendChild(rm);
+  el.hidden = false;
+}
+
+async function removeMirror() {
+  const client = fileBrowser.source;
+  const ok = await confirmDialog({
+    title: "remove mirror",
+    message: `Delete this project's mirror (all synced files and run artifacts) from ${client}? ` +
+      "The client stays connected; the mirror is re-synced on its next run.",
+    confirmText: "remove mirror",
+  });
+  if (!ok) return;
+  try {
+    await api(
+      `/api/projects/${state.activeId}/clients/${encodeURIComponent(client)}/clean`,
+      { method: "POST" },
+    );
+  } catch (err) {
+    $("#files-context").appendChild(Object.assign(document.createElement("span"), {
+      className: "files-missing", textContent: "failed: " + err.message,
+    }));
+    return;
+  }
+  fileBrowser.clients = fileBrowser.clients.filter((c) => c.name !== client);
+  fileBrowser.source = "lab";
+  renderSourceTabs();
+  loadSource();
 }
 
 function renderFilesContext(branch, base, missing) {
@@ -921,6 +1091,11 @@ function appendTreeNode(container, entry, depth) {
       row.querySelector(".tree-icon").textContent = open ? "▾ " : "▸ ";
       if (open && !loaded) {
         loaded = true;
+        if (entry.children) {
+          // Mirror trees arrive whole — children are embedded, nothing to fetch.
+          renderTree(kids, entry.children, depth + 1);
+          return;
+        }
         kids.innerHTML = '<div class="modal-loading" style="padding-left:' + (8 + (depth + 1) * 14) + 'px">…</div>';
         try {
           const { entries } = await api(
@@ -942,6 +1117,20 @@ function appendTreeNode(container, entry, depth) {
   }
 }
 
+// Endpoint prefixes for the active browser source: file/raw under the lab tree
+// vs the same pair on a client mirror.
+function sourceFileUrl(path) {
+  return fileBrowser.source === "lab"
+    ? `/api/projects/${state.activeId}/file?path=${encodeURIComponent(path)}`
+    : `/api/projects/${state.activeId}/clients/${encodeURIComponent(fileBrowser.source)}/file?path=${encodeURIComponent(path)}`;
+}
+
+function sourceRawUrl(path) {
+  return fileBrowser.source === "lab"
+    ? `${BASE}/api/projects/${state.activeId}/raw?path=${encodeURIComponent(path)}`
+    : `${BASE}/api/projects/${state.activeId}/clients/${encodeURIComponent(fileBrowser.source)}/raw?path=${encodeURIComponent(path)}`;
+}
+
 async function openFile(path, name) {
   fileBrowser.activePath = path;
   document.querySelectorAll("#file-tree .tree-item.active").forEach((el) => el.classList.remove("active"));
@@ -951,7 +1140,7 @@ async function openFile(path, name) {
   const content = $("#file-content");
   content.innerHTML = '<div class="modal-loading">loading…</div>';
   try {
-    const data = await api(`/api/projects/${state.activeId}/file?path=${encodeURIComponent(path)}`);
+    const data = await api(sourceFileUrl(path));
     renderFile(content, name, data);
   } catch (err) {
     content.innerHTML = "";
@@ -1042,13 +1231,43 @@ function renderFile(container, name, data) {
   const crumb = document.createElement("div");
   crumb.className = "file-crumb";
   crumb.textContent = data.path + "  ·  " + formatSize(data.size);
+  if (fileBrowser.source === "lab") {
+    // Plain download of the working-tree file, served by the raw endpoint.
+    const dl = document.createElement("a");
+    dl.className = "file-download";
+    dl.textContent = "download";
+    dl.href = sourceRawUrl(data.path);
+    dl.download = name;
+    dl.title = "Download this file";
+    crumb.appendChild(dl);
+  } else {
+    // A client-mirror file can be copied into the lab's working tree — the web
+    // counterpart of the agent's fetch_from_client tool.
+    const fetchBtn = document.createElement("button");
+    fetchBtn.type = "button";
+    fetchBtn.className = "ghost file-fetch";
+    fetchBtn.textContent = "fetch → lab";
+    fetchBtn.title = "Copy this file from the client mirror into the lab's working tree";
+    fetchBtn.addEventListener("click", () => withButton(fetchBtn, "fetching…", async () => {
+      const r = await api(
+        `/api/projects/${state.activeId}/clients/${encodeURIComponent(fileBrowser.source)}/fetch`,
+        { method: "POST", body: JSON.stringify({ paths: [data.path] }) },
+      );
+      const err = r.errors && r.errors[data.path];
+      fetchBtn.replaceWith(Object.assign(document.createElement("span"), {
+        className: "file-fetch-result" + (err ? " files-missing" : ""),
+        textContent: err ? "failed: " + err : "copied to lab working tree",
+      }));
+    }));
+    crumb.appendChild(fetchBtn);
+  }
   container.appendChild(crumb);
 
   if (IMAGE_RE.test(name)) {
     const img = document.createElement("img");
     img.className = "file-img";
     img.alt = name;
-    img.src = `/api/projects/${state.activeId}/raw?path=${encodeURIComponent(data.path)}`;
+    img.src = sourceRawUrl(data.path);
     img.addEventListener("error", () => {
       img.replaceWith(
         Object.assign(document.createElement("div"), {

@@ -19,6 +19,14 @@ class WorkspaceError(RuntimeError):
     pass
 
 
+class WorkspaceConflict(WorkspaceError):
+    """A merge/rebase hit conflicts (already aborted); ``files`` lists the paths."""
+
+    def __init__(self, message: str, files: list[str]) -> None:
+        super().__init__(message)
+        self.files = files
+
+
 @dataclass(frozen=True)
 class Workspace:
     path: Path
@@ -142,6 +150,43 @@ class Workspace:
             )
             detail = proc.stderr.strip() or proc.stdout.strip()
             raise WorkspaceError(f"merge of {branch} into {base} failed (conflicts?): {detail}")
+        return self.head_sha()
+
+    def rebase(self, branch: str, *, onto: str) -> str:
+        """Check out ``branch`` and rebase it onto ``onto`` (linear history).
+
+        On conflict the rebase is aborted (the branch is left exactly as it
+        was) and ``WorkspaceConflict`` is raised carrying the conflicted paths,
+        so the caller can hand resolution to something smarter — e.g. the
+        project's agent. Returns the new ``branch`` HEAD sha on success.
+        """
+        self.checkout(branch)
+        proc = subprocess.run(
+            ["git", "rebase", onto], cwd=self.path, capture_output=True, text=True
+        )
+        if proc.returncode != 0:
+            conflicted = subprocess.run(
+                ["git", "diff", "--name-only", "--diff-filter=U"],
+                cwd=self.path, capture_output=True, text=True,
+            ).stdout.split()
+            subprocess.run(
+                ["git", "rebase", "--abort"], cwd=self.path, capture_output=True, text=True
+            )
+            detail = proc.stderr.strip() or proc.stdout.strip()
+            raise WorkspaceConflict(
+                f"rebase of {branch} onto {onto} hit conflicts: {detail}", sorted(conflicted)
+            )
+        return self.head_sha()
+
+    def reset_hard(self) -> str:
+        """Discard uncommitted changes: hard-reset to HEAD and clean untracked.
+
+        ``git clean -fd`` removes untracked files and dirs but keeps ignored
+        ones (no ``-x``), so local venvs/caches survive. Commits are untouched.
+        Returns the HEAD sha.
+        """
+        self._git("reset", "--hard", "HEAD")
+        self._git("clean", "-fd")
         return self.head_sha()
 
     def pull(self, branch: str) -> str:

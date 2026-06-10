@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import fnmatch
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -98,6 +99,10 @@ class ClientRuntime:
                 await self._handle_task(conn, msg)
             elif msg.get("type") == "fetch":
                 await self._handle_fetch(conn, msg)
+            elif msg.get("type") == "mirror":
+                await self._handle_mirror(conn, msg)
+            elif msg.get("type") == "clean":
+                await self._handle_clean(conn, msg)
 
     def _mirror_root(self, project: object) -> Path:
         # The project name comes off the wire — keep it a single path component.
@@ -166,6 +171,30 @@ class ClientRuntime:
                 frame.update(data=None, error=str(exc))
             await conn.send(frame)
         await conn.send({"type": "fetch_done", "task_id": task_id})
+
+    async def _handle_mirror(self, conn: Connection, msg: dict) -> None:
+        """Report what this client's mirror of a project holds (no file content)."""
+        root = self._mirror_root(msg.get("project"))
+        exists = root.is_dir()
+        await conn.send(
+            {
+                "type": "mirror_result",
+                "task_id": msg["task_id"],
+                "exists": exists,
+                "manifest": manifest.scan(root) if exists else {},
+            }
+        )
+
+    async def _handle_clean(self, conn: Connection, msg: dict) -> None:
+        """Delete the project's mirror — the lab-driven "remove my files" action."""
+        root = self._mirror_root(msg.get("project"))
+        frame: dict = {"type": "clean_done", "task_id": msg["task_id"], "ok": True}
+        try:
+            if root.is_dir():
+                await asyncio.to_thread(shutil.rmtree, root)
+        except OSError as exc:
+            frame.update(ok=False, error=str(exc))
+        await conn.send(frame)
 
     @staticmethod
     async def _send_result(

@@ -10,8 +10,10 @@ An always-on Claude Agent SDK "dev lab". Three pieces:
 - **v2 web console (primary):** `dev-lab web` — FastAPI app with login
   (multi-user), a `labs/` directory of projects (each its own git clone + Claude
   agent/context), browser chat with markdown + mermaid, repo actions
-  (fetch/pull/push/merge/browse), **per-project model selection** (switchable
-  mid-chat), and a connected-clients sidebar. Done and live-verified.
+  (fetch/pull/push/reset/rebase-on-base/merge/browse/download-zip — rebase
+  conflicts can be handed to the agent via chat), **per-project model
+  selection** (switchable mid-chat), and a connected-clients sidebar. Done and
+  live-verified.
 - **Platform clients (M6 v1, new):** capability providers on other machines
   that **dial in to the lab** over WebSocket, announce capabilities, and run
   commands in a manifest-synced mirror of a project's working tree. The agent
@@ -19,9 +21,15 @@ An always-on Claude Agent SDK "dev lab". Three pieces:
 - **CLI (older, single-project):** `serve` + `chat-client` over WebSocket, file
   queue. Still works, secondary.
 
+**Deployed:** the web console runs on the real Pi (`homepi`) behind Apache at
+**https://home.memention.net/dev-lab/** — systemd unit `dev-lab-web`, code at
+`~/dev-lab/claude-agent-team/`, labs in `~/dev-lab/labs/`, TLS terminated by
+Apache (`deploy/apache-dev-lab.conf`), `CLIENT_TOKEN` set in the Pi's
+`dev-lab/.env`. The SPA is path-prefix aware (`BASE` in `static/app.js`).
+
 **What's left:** cross-machine (Mac ↔ Pi) live verification, port
-macos-build-test to the new model, M5 hardening (TLS, WS auth, observability),
-real-Pi deployment. 149 tests pass (dev-lab 117, platform-client 24,
+macos-build-test to the new model, M5 hardening (Secure cookie, WS auth,
+observability). 159 tests pass (dev-lab 125, platform-client 26,
 chat-client 6, macos-build-test 2), ruff clean.
 
 Git: everything on **`main`**, pushed to
@@ -50,7 +58,10 @@ registry; code reaches clients via **content-hash manifest sync** (uncommitted
 working tree included, warm per-project mirror, strays deleted each run);
 `run_on_client` takes `preserve` glob patterns to keep build artifacts between
 runs; `fetch_from_client` pulls artifacts back into the lab's working tree
-(they get committed with the session unless .gitignored).
+(they get committed with the session unless .gitignored). The web file browser
+has **source tabs**: browse a connected client's mirror (artifacts included),
+fetch a file back to the lab, or remove the mirror from the client — wire
+frames `mirror`/`clean` next to `task`/`fetch` (see `dev_lab/clients.py`).
 
 ## Repo layout
 

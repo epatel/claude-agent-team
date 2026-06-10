@@ -197,6 +197,45 @@ def test_fetch_rejects_oversized_files(tmp_path, monkeypatch):
     assert "too large" in frame["error"]
 
 
+def test_mirror_reports_manifest_or_absence(tmp_path):
+    mirror = tmp_path / "mirrors" / "proj"
+    mirror.mkdir(parents=True)
+    (mirror / "artifact.txt").write_text("payload")
+
+    frames = [
+        {"type": "mirror", "task_id": "m1", "project": "proj"},
+        {"type": "mirror", "task_id": "m2", "project": "never-synced"},
+    ]
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, *frames])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    results = {m["task_id"]: m for m in conn.sent if m.get("type") == "mirror_result"}
+    assert results["m1"]["exists"] is True
+    assert set(results["m1"]["manifest"]) == {"artifact.txt"}
+    assert results["m2"] == {
+        "type": "mirror_result", "task_id": "m2", "exists": False, "manifest": {},
+    }
+
+
+def test_clean_deletes_the_mirror(tmp_path):
+    mirror = tmp_path / "mirrors" / "proj"
+    mirror.mkdir(parents=True)
+    (mirror / "artifact.txt").write_text("payload")
+
+    clean = {"type": "clean", "task_id": "c1", "project": "proj"}
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, clean])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    done = next(m for m in conn.sent if m.get("type") == "clean_done")
+    assert done["task_id"] == "c1"
+    assert done["ok"] is True
+    assert not mirror.exists()
+    # cleaning an absent mirror is fine too
+    conn2 = FakeConn([{"type": "hello_ok", "name": "mac"}, clean])
+    asyncio.run(_runtime(tmp_path).handle(conn2))
+    assert next(m for m in conn2.sent if m.get("type") == "clean_done")["ok"] is True
+
+
 def test_project_name_cannot_traverse_mirrors_root(tmp_path):
     task = {"type": "task", "task_id": "t1", "project": "../../evil",
             "command": "true", "manifest": {}}

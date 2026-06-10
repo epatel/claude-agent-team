@@ -179,6 +179,51 @@ def test_fetch_fails_on_disconnect(tmp_path):
         asyncio.run(scenario())
 
 
+def test_mirror_returns_listing_and_clean_reports_ok():
+    sent = []
+    reg, name = _registry_with_client(sent)
+
+    async def scenario():
+        mirror = asyncio.create_task(reg.mirror(name, project="proj"))
+        await asyncio.sleep(0)
+        msg = sent[0]
+        assert msg["type"] == "mirror"
+        assert msg["project"] == "proj"
+        await reg.handle_message(name, {
+            "type": "mirror_result", "task_id": msg["task_id"],
+            "exists": True, "manifest": {"a.py": "h1", "out/r.txt": "h2"},
+        })
+        listing = await mirror
+
+        clean = asyncio.create_task(reg.clean(name, project="proj"))
+        await asyncio.sleep(0)
+        msg = sent[1]
+        assert msg["type"] == "clean"
+        assert msg["project"] == "proj"
+        await reg.handle_message(
+            name, {"type": "clean_done", "task_id": msg["task_id"], "ok": True}
+        )
+        return listing, await clean
+
+    listing, cleaned = asyncio.run(scenario())
+    assert listing == {"exists": True, "manifest": {"a.py": "h1", "out/r.txt": "h2"}}
+    assert cleaned == {"ok": True, "error": None}
+
+
+def test_mirror_fails_on_disconnect():
+    sent = []
+    reg, name = _registry_with_client(sent)
+
+    async def scenario():
+        mirror = asyncio.create_task(reg.mirror(name, project="p"))
+        await asyncio.sleep(0)
+        reg.unregister(name)
+        return await mirror
+
+    with pytest.raises(ClientError, match="disconnected"):
+        asyncio.run(scenario())
+
+
 # --- /ws/client endpoint -----------------------------------------------------
 
 def _client_app(tmp_path, **config_kwargs):

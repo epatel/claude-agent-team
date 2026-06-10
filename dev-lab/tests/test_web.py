@@ -1,3 +1,4 @@
+import base64
 import subprocess
 
 import pytest
@@ -426,3 +427,131 @@ def test_ws_requires_auth(tmp_path):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ws"):
             pass
+
+
+def test_rebase_reset_archive_endpoints(tmp_path):
+    import io
+    import zipfile
+
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+
+    # rebase needs a chat branch first
+    r = client.post(f"/api/projects/{pid}/rebase")
+    assert r.status_code == 400
+    assert "no work branch" in r.json()["detail"]
+
+    # reset reports the branch and commit it kept
+    r = client.post(f"/api/projects/{pid}/reset")
+    assert r.status_code == 200
+    assert r.json()["commit"]
+
+    # archive streams a zip of the working tree
+    r = client.get(f"/api/projects/{pid}/archive")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert ".zip" in r.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        assert "README.md" in zf.namelist()
+
+    # all three require auth
+    fresh, _ = _client(tmp_path / "fresh")
+    assert fresh.post("/api/projects/1/rebase").status_code == 401
+    assert fresh.post("/api/projects/1/reset").status_code == 401
+    assert fresh.get("/api/projects/1/archive").status_code == 401
+
+
+# --- client-mirror browsing (files dialog source tabs) -------------------------
+
+def _fake_mirror_client(app, project_name, files):
+    """Register a scripted client that answers mirror/fetch/clean instantly."""
+    registry = app.state.registry
+
+    async def send(message):
+        t, tid = message["type"], message["task_id"]
+        if t == "mirror":
+            exists = message["project"] == project_name
+            await registry.handle_message("mac", {
+                "type": "mirror_result", "task_id": tid, "exists": exists,
+                "manifest": {p: "h" for p in files} if exists else {},
+            })
+        elif t == "fetch":
+            for p in message["paths"]:
+                frame = {"type": "file", "task_id": tid, "path": p}
+                if p in files:
+                    frame["data"] = base64.b64encode(files[p]).decode()
+                else:
+                    frame.update(data=None, error="missing")
+                await registry.handle_message("mac", frame)
+            await registry.handle_message("mac", {"type": "fetch_done", "task_id": tid})
+        elif t == "clean":
+            await registry.handle_message("mac", {"type": "clean_done", "task_id": tid, "ok": True})
+
+    registry.register(name="mac", platform="darwin", capabilities=[], send=send)
+
+
+def test_client_mirror_browse_fetch_and_clean(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    app, _conn = _app(tmp_path)
+    client = TestClient(app)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+    files = {"out/report.txt": b"all green", "img.png": b"\x89PNG\x00bytes"}
+    _fake_mirror_client(app, "myrepo", files)
+
+    # only clients holding a mirror of this project are listed
+    r = client.get(f"/api/projects/{pid}/clients")
+    assert r.json() == [{"name": "mac", "platform": "darwin"}]
+
+    # flat mirror listing the UI nests into a tree
+    r = client.get(f"/api/projects/{pid}/clients/mac/mirror")
+    assert r.json() == {"exists": True, "paths": ["img.png", "out/report.txt"]}
+
+    # file view: text content, binary flagged, missing reported as 400
+    body = client.get(
+        f"/api/projects/{pid}/clients/mac/file", params={"path": "out/report.txt"}
+    ).json()
+    assert body["content"] == "all green"
+    assert body["binary"] is False
+    assert client.get(
+        f"/api/projects/{pid}/clients/mac/file", params={"path": "img.png"}
+    ).json()["binary"] is True
+    assert client.get(
+        f"/api/projects/{pid}/clients/mac/file", params={"path": "nope"}
+    ).status_code == 400
+
+    # raw bytes for the browser, content type guessed from the name
+    r = client.get(f"/api/projects/{pid}/clients/mac/raw", params={"path": "img.png"})
+    assert r.content == files["img.png"]
+    assert r.headers["content-type"].startswith("image/png")
+
+    # fetch copies into the lab working tree (visible via the lab file endpoint)
+    body = client.post(
+        f"/api/projects/{pid}/clients/mac/fetch",
+        json={"paths": ["out/report.txt", "nope"]},
+    ).json()
+    assert body["written"] == ["out/report.txt"]
+    assert "nope" in body["errors"]
+    assert client.get(
+        f"/api/projects/{pid}/file", params={"path": "out/report.txt"}
+    ).json()["content"] == "all green"
+    # empty fetch is rejected
+    assert client.post(
+        f"/api/projects/{pid}/clients/mac/fetch", json={"paths": []}
+    ).status_code == 400
+
+    # clean reports ok; unknown client is a clean 400
+    assert client.post(f"/api/projects/{pid}/clients/mac/clean").json() == {"ok": True}
+    assert client.post(f"/api/projects/{pid}/clients/ghost/clean").status_code == 400
+
+
+def test_client_mirror_routes_require_auth(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.get("/api/projects/1/clients").status_code == 401
+    assert client.get("/api/projects/1/clients/mac/mirror").status_code == 401
+    assert client.get("/api/projects/1/clients/mac/file?path=x").status_code == 401
+    assert client.get("/api/projects/1/clients/mac/raw?path=x").status_code == 401
+    assert client.post("/api/projects/1/clients/mac/fetch").status_code == 401
+    assert client.post("/api/projects/1/clients/mac/clean").status_code == 401
