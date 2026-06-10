@@ -142,7 +142,12 @@ agent tools `mcp__lab` `list_clients`/`run_on_client`/`fetch_from_client`
 section in the console sidebar. `run_on_client` takes `preserve` glob patterns
 so build artifacts/caches survive between runs (default stays clean-sync);
 `fetch_from_client` pulls mirror files (e.g. built binaries) back into the
-lab's working tree. Not yet live-verified against a real second machine.
+lab's working tree. **Live-verified 2026-06-10 on a single host** (real
+`dev-lab web` + real `platform-client connect` + a real agent chat turn: the
+agent autonomously called `list_clients` → `run_on_client` → `fetch_from_client`,
+the artifact landed in the lab tree and was committed; wrong-token hello
+rejected with 1008; registry emptied on client kill). Cross-machine (Mac ↔ Pi)
+verification still open.
 `extensions/macos-build-test` still runs the old SSE model until ported.
 
 Next: **M6 live verification** (run `platform-client connect` from the macOS
