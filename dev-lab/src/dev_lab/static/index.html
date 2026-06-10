@@ -48,16 +48,18 @@
       <button id="new-project-btn" class="new-project"
         title="Clone a git repo into the lab as a new project">+ new project</button>
       <form id="new-project-form" class="new-project-form" hidden>
-        <input id="np-url" placeholder="git url" required
+        <input id="np-url" placeholder="git url"
           title="HTTPS git URL of the repo to clone, e.g. https://github.com/owner/repo" />
         <input id="np-token" type="password" autocomplete="off"
           placeholder="github token"
           title="Needed for private repos and for pushing. Public, read-only clones don't need one." />
+        <input id="np-name" placeholder="…or new repo name"
+          title="Leave the git url empty and give a name to start a brand-new empty repo (git init, no remote). Letters, digits, . _ - only." />
         <select id="np-model" class="np-model"
           title="Which Claude model this project's agent uses. You can change it per project later."></select>
         <div class="np-actions">
           <button type="submit" id="np-submit"
-            title="Clone the repo at the URL above into a new project">clone</button>
+            title="Clone the git URL — or, with only a name given, git-init a new empty repo">create</button>
           <button type="button" id="np-cancel" class="ghost"
             title="Discard this form without cloning">cancel</button>
         </div>
@@ -130,6 +132,7 @@
                 d="M1.5 13.5v-10a1 1 0 0 1 1-1h3.6l1.6 2h6.3a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11.5a1 1 0 0 1-1-1z"/></svg>browse files</button>
             <button id="archive-btn" class="merge-btn ghost" hidden
               title="Download the working tree as a zip (git internals and venv/cache dirs excluded)">download zip</button>
+            <div class="repo-actions-break" aria-hidden="true"></div>
             <button id="fetch-btn" class="merge-btn ghost" hidden
               title="Fetch the latest commits from the remote without changing your files">fetch</button>
             <button id="pull-btn" class="merge-btn ghost" hidden

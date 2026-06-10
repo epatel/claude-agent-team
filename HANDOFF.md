@@ -30,7 +30,7 @@ Apache (`deploy/apache-dev-lab.conf`), `CLIENT_TOKEN` set in the Pi's
 
 **What's left:** cross-machine (Mac ↔ Pi) live verification, port
 macos-build-test to the new model, M5 hardening (Secure cookie, WS auth,
-observability). 164 tests pass (dev-lab 130, platform-client 26,
+observability). 167 tests pass (dev-lab 133, platform-client 26,
 chat-client 6, macos-build-test 2), ruff clean.
 
 Git: everything on **`main`**, pushed to

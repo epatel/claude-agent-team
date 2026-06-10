@@ -188,6 +188,38 @@ def test_rebase_without_work_errors(tmp_path):
         asyncio.run(pm.rebase_onto_base(pid))
 
 
+def test_create_blank_inits_a_fresh_repo(tmp_path):
+    pm, _conn, labs = _pm(tmp_path)
+
+    row = pm.create_blank("fresh-idea")
+
+    assert row["name"] == "fresh-idea"
+    assert row["remote_url"] is None
+    clone = labs / "fresh-idea"
+    assert (clone / ".git").is_dir()
+    assert (clone / "README.md").read_text() == "# fresh-idea\n"
+    head = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    assert head == "main"
+    # the seed commit exists, so sessions can cut a chat branch from HEAD
+    status = subprocess.run(
+        ["git", "-C", str(clone), "status", "--porcelain"], capture_output=True, text=True
+    ).stdout
+    assert status == ""
+
+
+def test_create_blank_validates_name_and_collisions(tmp_path):
+    pm, _conn, _labs = _pm(tmp_path)
+    for bad in ("", "  ", "../evil", "has space", ".git", "a/b", "-leading"):
+        with pytest.raises(ProjectError, match="name must be|already exists"):
+            pm.create_blank(bad)
+    pm.create_blank("taken")
+    with pytest.raises(ProjectError, match="already exists"):
+        pm.create_blank("taken")
+
+
 class _FakeRegistry:
     """Stand-in client registry: records clean() calls, one client fails."""
 

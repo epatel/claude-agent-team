@@ -32,6 +32,11 @@ class ProjectError(RuntimeError):
     pass
 
 
+# A blank-project name: one safe path segment, no leading dot (so no ".git",
+# no hidden dirs), bounded length.
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
 def _derive_name(remote_url: str) -> str:
     """Repo name from a git URL: …/owner/foo.git or git@host:owner/foo -> 'foo'."""
     tail = remote_url.rstrip("/").replace(":", "/").rsplit("/", 1)[-1]
@@ -113,6 +118,53 @@ class ProjectManager:
     def effective_model(self, row: sqlite3.Row) -> str:
         """The model a project will run with: its own override, else the lab default."""
         return row["model"] or self.config.model
+
+    def create_blank(self, name: str, model: str | None = None) -> sqlite3.Row:
+        """git-init a brand-new empty project under labs/<name> (no remote).
+
+        For starting something from scratch in the lab. ``name`` is chosen
+        explicitly (one path segment, ``_NAME_RE``), so a collision is an error
+        rather than a ``_2`` suffix. The repo gets a seed README committed on
+        ``main`` so a base branch exists for chat sessions to cut from; a
+        remote can be attached later from a chat turn if it ever needs one.
+        """
+        name = (name or "").strip()
+        if not _NAME_RE.match(name):
+            raise ProjectError(
+                "project name must be letters/digits/._- (start with a letter or digit)"
+            )
+        model = (model or "").strip() or None
+        if model is not None and model not in KNOWN_MODEL_IDS:
+            raise ProjectError(f"unknown model: {model}")
+        dest = self.labs_dir / name
+        if dest.exists() or db.get_project_by_name(self.conn, name) is not None:
+            raise ProjectError(f"a project named {name!r} already exists")
+
+        init = subprocess.run(
+            ["git", "init", "--quiet", "-b", "main", str(dest)],
+            capture_output=True,
+            text=True,
+        )
+        if init.returncode != 0:
+            raise ProjectError(f"git init failed: {init.stderr.strip()}")
+        # Same commit identity a cloned project gets, so agent commits work.
+        subprocess.run(["git", "-C", str(dest), "config", "user.name", "Dev Lab"], check=False)
+        subprocess.run(
+            ["git", "-C", str(dest), "config", "user.email", "lab@local"], check=False
+        )
+        (dest / "README.md").write_text(f"# {name}\n")
+        subprocess.run(["git", "-C", str(dest), "add", "-A"], check=False)
+        commit = subprocess.run(
+            ["git", "-C", str(dest), "commit", "--quiet", "-m", "Initial commit"],
+            capture_output=True,
+            text=True,
+        )
+        if commit.returncode != 0:
+            shutil.rmtree(dest, ignore_errors=True)
+            raise ProjectError(f"initial commit failed: {commit.stderr.strip()}")
+
+        pid = db.create_project(self.conn, name=name, path=str(dest), model=model)
+        return db.get_project(self.conn, pid)
 
     def create(
         self, remote_url: str, github_token: str | None = None, model: str | None = None

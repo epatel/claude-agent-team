@@ -277,13 +277,20 @@ def build_app(
 
     @app.post("/api/projects")
     async def create_project(request: Request) -> dict:
+        """Clone ``remote_url`` — or, given only ``name``, git-init a blank repo."""
         current_user(request)
         data = await request.json()
         remote_url = (data.get("remote_url") or "").strip()
+        name = (data.get("name") or "").strip()
         github_token = (data.get("github_token") or "").strip()
         model = (data.get("model") or "").strip()
         try:
-            row = pm.create(remote_url, github_token=github_token, model=model)
+            if remote_url:
+                row = pm.create(remote_url, github_token=github_token, model=model)
+            elif name:
+                row = pm.create_blank(name, model=model)
+            else:
+                raise ProjectError("a git URL (clone) or a project name (new repo) is required")
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})

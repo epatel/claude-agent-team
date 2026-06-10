@@ -242,20 +242,31 @@ $("#np-cancel").addEventListener("click", () => {
   $("#new-project-btn").hidden = false;
   $("#np-error").textContent = "";
 });
+// Keep the blank-repo name to characters the server accepts as it's typed.
+$("#np-name").addEventListener("input", (e) => {
+  e.target.value = e.target.value.replace(/[^A-Za-z0-9._-]/g, "");
+});
+
 $("#new-project-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const remote_url = $("#np-url").value.trim();
+  const name = $("#np-name").value.trim();
   const github_token = $("#np-token").value.trim();
   const model = $("#np-model").value;
   $("#np-error").textContent = "";
-  withButton($("#np-submit"), "cloning", async () => {
+  if (!remote_url && !name) {
+    $("#np-error").textContent = "give a git url to clone, or a name for a new repo";
+    return;
+  }
+  withButton($("#np-submit"), remote_url ? "cloning" : "creating", async () => {
     try {
       await api("/api/projects", {
         method: "POST",
-        body: JSON.stringify({ remote_url, github_token, model }),
+        body: JSON.stringify({ remote_url, name, github_token, model }),
       });
       $("#np-url").value = "";
       $("#np-token").value = "";
+      $("#np-name").value = "";
       fillModelSelect($("#np-model"), state.defaultModel);
       $("#new-project-form").hidden = true;
       $("#new-project-btn").hidden = false;

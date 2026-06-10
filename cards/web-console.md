@@ -86,7 +86,12 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   cloning a git URL. GitHub auth is **per project**: a token entered on create
   (or later via the project's token control) is stored on the project row and
   injected into its `origin` for private clone/push/pull; public repos need none.
-  Names are single dir segments.
+  Names are single dir segments. The same form starts a **blank project**: leave
+  the URL empty and give just a name (regex-gated, `_NAME_RE` in projects.py) —
+  the lab `git init -b main`s a fresh repo under `labs/<name>` with a seed
+  README commit (sessions need a HEAD to cut branches from) and no remote; a
+  taken name is an error, not a `_2` suffix, because the name was chosen
+  explicitly.
 - **Inspecting work.** Each committed turn shows a **view-diff** button (the
   commit chip) that opens `GET /api/projects/{id}/commits/{sha}/diff` in a modal
   (`diff.js` renders the unified patch as collapsible per-file blocks). A

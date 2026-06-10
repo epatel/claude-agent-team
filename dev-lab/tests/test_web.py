@@ -429,6 +429,27 @@ def test_ws_requires_auth(tmp_path):
             pass
 
 
+def test_create_blank_project_endpoint(tmp_path):
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+
+    r = client.post("/api/projects", json={"name": "scratch"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "scratch"
+    pid = r.json()["id"]
+    # it's a real repo: the browser sees the seed README on main
+    tree = client.get(f"/api/projects/{pid}/tree").json()
+    assert tree["branch"] == "main"
+    assert "README.md" in [e["name"] for e in tree["entries"]]
+
+    assert client.post("/api/projects", json={"name": "scratch"}).status_code == 400
+    assert client.post("/api/projects", json={"name": "../evil"}).status_code == 400
+    # a url wins over a name when both are given (clone of a bad url fails)
+    assert client.post(
+        "/api/projects", json={"remote_url": str(tmp_path / "nope"), "name": "x"}
+    ).status_code == 400
+
+
 def test_remove_project_endpoint(tmp_path):
     _src_repo(tmp_path / "myrepo")
     app, _conn = _app(tmp_path)
