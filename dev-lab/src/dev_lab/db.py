@@ -122,6 +122,17 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE projects ADD COLUMN owner_id INTEGER REFERENCES users(id);
         """,
     ),
+    (
+        9,
+        # Per-project agent configuration (the console's "agent" tab):
+        # agent_prompt is appended to the system prompt; mcp_servers is a JSON
+        # object of name -> MCP server config handed to the Agent SDK. NULL
+        # means "none" for both.
+        """
+        ALTER TABLE projects ADD COLUMN agent_prompt TEXT;
+        ALTER TABLE projects ADD COLUMN mcp_servers TEXT;
+        """,
+    ),
 ]
 
 
@@ -303,6 +314,18 @@ def clear_messages(conn: sqlite3.Connection, project_id: int) -> int:
     cur = conn.execute("DELETE FROM messages WHERE project_id = ?", (project_id,))
     conn.commit()
     return cur.rowcount
+
+
+def set_project_agent_prompt(conn: sqlite3.Connection, project_id: int, prompt: str | None) -> None:
+    """Set (or clear, with ``None``) a project's extra agent system prompt."""
+    conn.execute("UPDATE projects SET agent_prompt = ? WHERE id = ?", (prompt, project_id))
+    conn.commit()
+
+
+def set_project_mcp_servers(conn: sqlite3.Connection, project_id: int, raw: str | None) -> None:
+    """Set (or clear, with ``None``) a project's MCP server config (JSON text)."""
+    conn.execute("UPDATE projects SET mcp_servers = ? WHERE id = ?", (raw, project_id))
+    conn.commit()
 
 
 def delete_project(conn: sqlite3.Connection, project_id: int) -> None:

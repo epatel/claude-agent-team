@@ -59,6 +59,8 @@ Each line is a settled choice no agent should reopen without flagging here.
 - 2026-06-10 — **Strict per-user project lists**: each project is owned by its creator (`projects.owner_id`, migration #8); non-supers see only their own projects (REST + console WS + event stream all gated; foreign ids 404), super-users see all, ownerless rows (auto-discovered checkouts) are super-only.
 - 2026-06-10 — **Per-lab client-mirror namespace**: the lab mints a stable id (`<labs>/.dev-lab/lab-id`), sends it in `hello_ok`, and clients key mirrors `<mirrors>/<lab-id>/<project>` — several labs can share one client machine without same-named projects colliding (no id → flat legacy layout).
 
+- 2026-06-10 — **Per-project agent config in the console** ("agent" tab): an extra system-prompt append and MCP servers live on the project row (migration #9, validated JSON), skills live in the repo under `.claude/skills/` (committed like code, `skills="all"` on the SDK options).
+
 ## Current state / handoff
 
 **M0–M4 done** (branch `m0-skeleton`). **v2 web console done** (branch

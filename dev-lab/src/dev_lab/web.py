@@ -387,6 +387,56 @@ def build_app(
         await bus.publish({"type": "projects_changed"})
         return result
 
+    # --- Agent tab: project prompt, MCP servers, skills ---------------------
+
+    @app.get("/api/projects/{project_id}/agent")
+    async def get_agent_config(project_id: int, request: Request) -> dict:
+        _require_project(request, project_id)
+        row = db.get_project(conn, project_id)
+        try:
+            skills = await pm.list_skills(project_id)
+        except (ProjectError, WorkspaceError):
+            skills = []
+        return {
+            "agent_prompt": row["agent_prompt"] or "",
+            "mcp_servers": row["mcp_servers"] or "",
+            "skills": skills,
+        }
+
+    @app.post("/api/projects/{project_id}/agent")
+    async def set_agent_config(project_id: int, request: Request) -> dict:
+        """Save the project prompt and/or MCP servers (key present = set it)."""
+        _require_project(request, project_id)
+        data = await request.json()
+        out: dict = {}
+        try:
+            if "agent_prompt" in data:
+                out.update(await pm.set_agent_prompt(project_id, str(data["agent_prompt"])))
+            if "mcp_servers" in data:
+                out.update(await pm.set_mcp_servers(project_id, str(data["mcp_servers"])))
+        except ProjectError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return out
+
+    @app.post("/api/projects/{project_id}/skills")
+    async def add_skill(project_id: int, request: Request) -> dict:
+        _require_project(request, project_id)
+        data = await request.json()
+        try:
+            return await pm.add_skill(
+                project_id, (data.get("name") or "").strip(), data.get("content") or ""
+            )
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.delete("/api/projects/{project_id}/skills/{name}")
+    async def remove_skill(project_id: int, name: str, request: Request) -> dict:
+        _require_project(request, project_id)
+        try:
+            return await pm.remove_skill(project_id, name)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/projects/{project_id}/merge")
     async def merge_project(project_id: int, request: Request) -> dict:
         _require_project(request, project_id)

@@ -344,7 +344,9 @@ function setTab(name) {
   });
   $("#panel-chat").hidden = name !== "chat";
   $("#panel-repo").hidden = name !== "repo";
+  $("#panel-agent").hidden = name !== "agent";
   if (name === "chat") scrollBottom();
+  if (name === "agent") loadAgentPanel();
 }
 document.querySelectorAll("#head-tabs .tab").forEach((t) => {
   t.addEventListener("click", () => setTab(t.dataset.tab));
@@ -604,6 +606,107 @@ $("#remove-project-btn").addEventListener("click", async () => {
       location.reload();  // the active project is gone — restart from the project list
     } catch (err) {
       systemLine(`✗ remove project failed: ${err.message}`, true);
+    }
+  });
+});
+
+/* ---------- agent tab: project prompt, MCP servers, skills ---------- */
+
+async function loadAgentPanel() {
+  if (state.activeId == null) return;
+  try {
+    const cfg = await api(`/api/projects/${state.activeId}/agent`);
+    $("#agent-prompt").value = cfg.agent_prompt;
+    $("#agent-mcp").value = cfg.mcp_servers;
+    renderSkills(cfg.skills);
+    $("#agent-prompt-status").textContent = "";
+    $("#agent-mcp-status").textContent = "";
+    $("#skill-status").textContent = "";
+  } catch (err) {
+    $("#agent-prompt-status").textContent = "failed to load: " + err.message;
+  }
+}
+
+function renderSkills(names) {
+  const ul = $("#skill-list");
+  ul.innerHTML = "";
+  if (!names.length) {
+    ul.innerHTML = '<li class="skill-empty">no skills yet — add one below</li>';
+    return;
+  }
+  for (const name of names) {
+    const li = document.createElement("li");
+    li.className = "skill-item";
+    li.textContent = name + " ";
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "attach-remove";
+    x.textContent = "×";
+    x.title = "Delete this skill from the repo (commits the removal)";
+    x.addEventListener("click", async () => {
+      const ok = await confirmDialog({
+        title: "remove skill",
+        message: `Delete skill "${name}" (.claude/skills/${name}/) from the repo? The removal is committed.`,
+        confirmText: "remove skill",
+      });
+      if (!ok) return;
+      try {
+        await api(`/api/projects/${state.activeId}/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+        loadAgentPanel();
+      } catch (err) {
+        $("#skill-status").textContent = "failed: " + err.message;
+      }
+    });
+    li.appendChild(x);
+    ul.appendChild(li);
+  }
+}
+
+function saveAgentField(btn, statusEl, payload, busy) {
+  withButton(btn, busy, async () => {
+    statusEl.textContent = "";
+    try {
+      await api(`/api/projects/${state.activeId}/agent`, {
+        method: "POST", body: JSON.stringify(payload),
+      });
+      statusEl.textContent = "saved — applies on the next turn";
+    } catch (err) {
+      statusEl.textContent = "✗ " + err.message;
+    }
+  });
+}
+
+$("#agent-prompt-save").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  saveAgentField($("#agent-prompt-save"), $("#agent-prompt-status"),
+    { agent_prompt: $("#agent-prompt").value }, "saving");
+});
+
+$("#agent-mcp-save").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  saveAgentField($("#agent-mcp-save"), $("#agent-mcp-status"),
+    { mcp_servers: $("#agent-mcp").value }, "saving");
+});
+
+$("#skill-name").addEventListener("input", (e) => {
+  e.target.value = e.target.value.replace(/[^A-Za-z0-9._-]/g, "");
+});
+
+$("#skill-add").addEventListener("click", () => {
+  if (state.activeId == null) return;
+  withButton($("#skill-add"), "adding…", async () => {
+    $("#skill-status").textContent = "";
+    try {
+      const r = await api(`/api/projects/${state.activeId}/skills`, {
+        method: "POST",
+        body: JSON.stringify({ name: $("#skill-name").value.trim(), content: $("#skill-content").value }),
+      });
+      $("#skill-name").value = "";
+      $("#skill-content").value = "";
+      $("#skill-status").textContent = `added${r.commit ? " @ " + r.commit.slice(0, 10) : ""}`;
+      loadAgentPanel();
+    } catch (err) {
+      $("#skill-status").textContent = "✗ " + err.message;
     }
   });
 });

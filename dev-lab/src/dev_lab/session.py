@@ -48,6 +48,8 @@ class LabSession:
         branch_started: bool = False,
         run_task: RunTask = _run_task,
         client_registry=None,
+        system_append: str | None = None,
+        mcp_servers: dict | None = None,
     ) -> None:
         self.workspace = Workspace(Path(repo_path))
         self.config = config
@@ -59,6 +61,10 @@ class LabSession:
         # Connected platform clients (cards/extension-clients.md) — exposed to
         # the agent as the mcp__lab toolset when present.
         self._client_registry = client_registry
+        # Per-project agent config (console agent tab): extra system prompt and
+        # MCP servers, both handed through to the Agent SDK each turn.
+        self._system_append = system_append
+        self._mcp_servers = mcp_servers
         # ``branch_started`` means the branch already exists (restored across a
         # restart) — check it out rather than create it on the first turn.
         self._started = branch_started
@@ -88,6 +94,10 @@ class LabSession:
             extra["on_event"] = on_event
         if self._client_registry is not None:
             extra["client_registry"] = self._client_registry
+        if self._system_append:
+            extra["system_append"] = self._system_append
+        if self._mcp_servers:
+            extra["extra_mcp_servers"] = self._mcp_servers
 
         result = await self._run_task(
             message,

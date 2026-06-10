@@ -429,6 +429,49 @@ def test_ws_requires_auth(tmp_path):
             pass
 
 
+def test_agent_config_and_skills_endpoints(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+
+    # defaults: empty prompt, empty mcp config, no skills
+    cfg = client.get(f"/api/projects/{pid}/agent").json()
+    assert cfg == {"agent_prompt": "", "mcp_servers": "", "skills": []}
+
+    # save prompt + valid mcp servers; invalid JSON / shape are 400s
+    r = client.post(f"/api/projects/{pid}/agent", json={
+        "agent_prompt": "Prefer small commits.",
+        "mcp_servers": '{"docs": {"type": "http", "url": "https://x/mcp"}}',
+    })
+    assert r.status_code == 200
+    assert client.post(
+        f"/api/projects/{pid}/agent", json={"mcp_servers": "not json"}
+    ).status_code == 400
+    assert client.post(
+        f"/api/projects/{pid}/agent", json={"mcp_servers": '{"docs": "https://x"}'}
+    ).status_code == 400
+    cfg = client.get(f"/api/projects/{pid}/agent").json()
+    assert cfg["agent_prompt"] == "Prefer small commits."
+    assert "https://x/mcp" in cfg["mcp_servers"]
+
+    # skills: add (commits), list, file lands in the tree, remove (commits)
+    r = client.post(f"/api/projects/{pid}/skills", json={
+        "name": "review", "content": "---\nname: review\n---\n\nReview hard.",
+    })
+    assert r.status_code == 200 and r.json()["commit"]
+    assert client.get(f"/api/projects/{pid}/agent").json()["skills"] == ["review"]
+    assert client.get(
+        f"/api/projects/{pid}/file", params={"path": ".claude/skills/review/SKILL.md"}
+    ).json()["content"].startswith("---")
+    assert client.post(
+        f"/api/projects/{pid}/skills", json={"name": "../bad", "content": "x"}
+    ).status_code == 400
+    assert client.delete(f"/api/projects/{pid}/skills/review").json()["commit"]
+    assert client.get(f"/api/projects/{pid}/agent").json()["skills"] == []
+    assert client.delete(f"/api/projects/{pid}/skills/review").status_code == 400
+
+
 def test_strict_project_isolation(tmp_path):
     _src_repo(tmp_path / "myrepo")
     app, _conn = _app(tmp_path)

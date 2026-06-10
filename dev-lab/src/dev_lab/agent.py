@@ -168,6 +168,8 @@ def build_agent_options(
     effort: str = "high",
     client_registry: ClientRegistry | None = None,
     resume: str | None = None,
+    system_append: str | None = None,
+    extra_mcp_servers: dict[str, dict] | None = None,
 ) -> ClaudeAgentOptions:
     """Build the SDK options, wiring remote capabilities as MCP tools.
 
@@ -175,24 +177,33 @@ def build_agent_options(
     ``mcp__lab`` toolset (`list_clients` / `run_on_client`, bound to ``cwd`` as
     the sync source). ``resume`` (a prior session id) continues that
     conversation instead of starting fresh — used by interactive chat sessions
-    so follow-ups keep context.
+    so follow-ups keep context. ``system_append`` is the project's own prompt
+    (console agent tab), appended after the lab's standing instructions.
+    ``extra_mcp_servers`` (name -> SDK config: stdio/sse/http) are the
+    project's MCP servers; all their tools are allowed. ``skills="all"``
+    enables any skill committed under the project's ``.claude/skills/``.
     """
     allowed = list(DEFAULT_TOOLS)
-    mcp_servers: dict[str, dict] = {}
+    mcp_servers: dict[str, dict] = dict(extra_mcp_servers or {})
+    allowed += [f"mcp__{name}" for name in mcp_servers]
     if client_registry is not None:
         mcp_servers["lab"] = _clients_mcp_server(client_registry, Path(cwd))
         allowed.append("mcp__lab")
+    append = _SYSTEM_APPEND
+    if system_append and system_append.strip():
+        append = f"{_SYSTEM_APPEND}\n\n## Project instructions\n\n{system_append.strip()}"
 
     return ClaudeAgentOptions(
         cwd=str(cwd),
         model=model,
         allowed_tools=allowed,
         permission_mode="bypassPermissions",
-        system_prompt={"type": "preset", "preset": "claude_code", "append": _SYSTEM_APPEND},
+        system_prompt={"type": "preset", "preset": "claude_code", "append": append},
         max_turns=max_turns,
         effort=effort,
         mcp_servers=mcp_servers,
         resume=resume,
+        skills="all",
     )
 
 
@@ -206,6 +217,8 @@ async def run_task(
     client_registry: ClientRegistry | None = None,
     resume: str | None = None,
     on_event: Callable[[dict], Awaitable[None]] | None = None,
+    system_append: str | None = None,
+    extra_mcp_servers: dict[str, dict] | None = None,
 ) -> AgentResult:
     """Run the agent loop for one instruction in ``cwd``; return a result summary.
 
@@ -218,6 +231,7 @@ async def run_task(
     options = build_agent_options(
         cwd=cwd, model=model, max_turns=max_turns, effort=effort,
         client_registry=client_registry, resume=resume,
+        system_append=system_append, extra_mcp_servers=extra_mcp_servers,
     )
 
     summary_parts: list[str] = []

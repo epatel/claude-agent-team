@@ -71,6 +71,9 @@
           <button id="tab-repo" class="tab" type="button" role="tab"
             data-tab="repo" aria-controls="panel-repo" aria-selected="false"
             title="Repo actions: browse files, fetch/pull/push, merge, and set the base branch">repo</button>
+          <button id="tab-agent" class="tab" type="button" role="tab"
+            data-tab="agent" aria-controls="panel-agent" aria-selected="false"
+            title="Agent setup for this project: extra system prompt, MCP servers, skills">agent</button>
         </nav>
         <div class="head-right">
           <label id="model-picker" class="model-picker" hidden
@@ -145,6 +148,51 @@
           <div class="repo-danger">
             <button id="remove-project-btn" class="danger" hidden
               title="Remove this project from the lab: deletes the local clone and chat history, and cleans its mirror on connected clients. The remote repository is NOT touched.">remove project</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-agent" class="tab-panel repo-panel" role="tabpanel" aria-labelledby="tab-agent" hidden>
+        <div class="repo-card agent-card">
+          <div class="agent-section">
+            <div class="agent-label"
+              title="Extra instructions appended to this project's agent system prompt (Claude Code preset + lab rules + this). Applied on the next turn; the conversation continues.">project prompt</div>
+            <textarea id="agent-prompt" rows="5"
+              placeholder="extra standing instructions for this project's agent…"></textarea>
+            <div class="agent-actions">
+              <button id="agent-prompt-save" class="merge-btn ghost" type="button"
+                title="Save the project prompt (empty = none)">save prompt</button>
+              <span id="agent-prompt-status" class="agent-status"></span>
+            </div>
+          </div>
+
+          <div class="agent-section">
+            <div class="agent-label"
+              title="MCP servers handed to this project's agent, as JSON: name → config. Their tools become available on the next turn.">mcp servers</div>
+            <textarea id="agent-mcp" rows="7" class="agent-mono"
+              placeholder='{"docs": {"type": "http", "url": "https://example.com/mcp"}}'></textarea>
+            <p class="np-hint">JSON object: name → SDK config — <code>{"type": "stdio", "command": "…", "args": […]}</code>,
+              <code>{"type": "sse"|"http", "url": "…"}</code>. Empty = none.</p>
+            <div class="agent-actions">
+              <button id="agent-mcp-save" class="merge-btn ghost" type="button"
+                title="Validate and save the MCP server config">save mcp servers</button>
+              <span id="agent-mcp-status" class="agent-status"></span>
+            </div>
+          </div>
+
+          <div class="agent-section">
+            <div class="agent-label"
+              title="Skills live in the repo at .claude/skills/<name>/SKILL.md and are committed like code. The agent can use all of them.">skills</div>
+            <ul id="skill-list" class="skill-list"></ul>
+            <input id="skill-name" placeholder="skill-name"
+              title="Directory name for the skill (letters, digits, . _ -)" />
+            <textarea id="skill-content" rows="7" class="agent-mono"
+              placeholder="---&#10;name: my-skill&#10;description: what it does and when the agent should use it&#10;---&#10;&#10;Instructions for the agent…"></textarea>
+            <div class="agent-actions">
+              <button id="skill-add" class="merge-btn ghost" type="button"
+                title="Write .claude/skills/<name>/SKILL.md and commit it">add skill</button>
+              <span id="skill-status" class="agent-status"></span>
+            </div>
           </div>
         </div>
       </section>

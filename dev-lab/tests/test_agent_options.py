@@ -18,6 +18,19 @@ def test_options_with_client_registry_adds_lab_toolset(tmp_path):
     assert "mcp__lab" in opts.allowed_tools
 
 
+def test_options_with_project_agent_config():
+    opts = build_agent_options(
+        cwd="/tmp", model="m",
+        system_append="Always write tests first.",
+        extra_mcp_servers={"docs": {"type": "http", "url": "https://x/mcp"}},
+    )
+    assert "Always write tests first." in opts.system_prompt["append"]
+    assert "## Project instructions" in opts.system_prompt["append"]
+    assert opts.mcp_servers["docs"] == {"type": "http", "url": "https://x/mcp"}
+    assert "mcp__docs" in opts.allowed_tools
+    assert opts.skills == "all"  # project .claude/skills/ are usable
+
+
 def _handlers(registry, root):
     return {t.name: t.handler for t in _client_tools(registry, root)}
 

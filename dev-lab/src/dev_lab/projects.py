@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import re
 import shutil
 import sqlite3
@@ -67,6 +68,17 @@ def _authed_url(url: str, token: str | None) -> str:
     if clean.startswith("https://"):
         return clean.replace("https://", f"https://x-access-token:{token}@", 1)
     return clean
+
+
+def _parse_mcp_servers(raw: str | None) -> dict | None:
+    """Parse a project's stored MCP-servers JSON; tolerate bad rows as None."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 class ProjectManager:
@@ -241,6 +253,100 @@ class ProjectManager:
             self._sessions.pop(project_id, None)
         return {"model": model or self.config.model}
 
+    async def set_agent_prompt(self, project_id: int, prompt: str) -> dict:
+        """Set (empty = clear) the project's extra agent system prompt.
+
+        Drops the cached session like a model switch: the conversation resumes,
+        the next turn rebuilds its options with the new prompt.
+        """
+        if db.get_project(self.conn, project_id) is None:
+            raise ProjectError(f"no such project: {project_id}")
+        value = prompt.strip() or None
+        db.set_project_agent_prompt(self.conn, project_id, value)
+        self._sessions.pop(project_id, None)
+        return {"agent_prompt": value or ""}
+
+    async def set_mcp_servers(self, project_id: int, raw: str) -> dict:
+        """Set (empty = clear) the project's MCP servers (JSON name -> config).
+
+        Validated here so a typo is a 400 at save time, not a broken next turn;
+        the SDK gets the parsed dict verbatim. Drops the cached session.
+        """
+        if db.get_project(self.conn, project_id) is None:
+            raise ProjectError(f"no such project: {project_id}")
+        value = raw.strip() or None
+        if value is not None:
+            try:
+                parsed = json.loads(value)
+            except ValueError as exc:
+                raise ProjectError(f"mcp servers must be valid JSON: {exc}") from exc
+            if not isinstance(parsed, dict) or not all(
+                isinstance(v, dict) for v in parsed.values()
+            ):
+                raise ProjectError(
+                    'mcp servers must be an object of name -> config, e.g. '
+                    '{"docs": {"type": "http", "url": "https://..."}}'
+                )
+            value = json.dumps(parsed, indent=2)
+        db.set_project_mcp_servers(self.conn, project_id, value)
+        self._sessions.pop(project_id, None)
+        return {"mcp_servers": value or ""}
+
+    # --- Skills: .claude/skills/<name>/SKILL.md in the working tree ---------
+
+    def _skills_dir(self, project_id: int) -> Path:
+        return self._workspace(project_id).path / ".claude" / "skills"
+
+    async def list_skills(self, project_id: int) -> list[str]:
+        """Names of skills committed in the project tree (agent sees them all)."""
+        skills_dir = self._skills_dir(project_id)
+        if not skills_dir.is_dir():
+            return []
+        return sorted(
+            child.name for child in skills_dir.iterdir()
+            if child.is_dir() and (child / "SKILL.md").is_file()
+        )
+
+    async def add_skill(self, project_id: int, name: str, content: str) -> dict:
+        """Write ``.claude/skills/<name>/SKILL.md`` and commit it.
+
+        Committed straight away for the same reason uploads are: a dirty tree
+        blocks the next chat session. The agent picks the skill up on its next
+        turn (options carry ``skills="all"``).
+        """
+        if not _NAME_RE.match(name or ""):
+            raise ProjectError(
+                "skill name must be letters/digits/._- (start with a letter or digit)"
+            )
+        if not content.strip():
+            raise ProjectError("skill content (SKILL.md markdown) is required")
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            target = self._skills_dir(project_id) / name
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "SKILL.md").write_text(content)
+            commit = ws.commit_all(f"Add skill {name} via web console") if ws.is_dirty() else None
+        self._sessions.pop(project_id, None)
+        return {"name": name, "commit": commit}
+
+    async def remove_skill(self, project_id: int, name: str) -> dict:
+        """Delete a skill directory from the tree and commit the removal."""
+        if not _NAME_RE.match(name or ""):
+            raise ProjectError(f"no such skill: {name!r}")
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            target = self._skills_dir(project_id) / name
+            if not (target / "SKILL.md").is_file():
+                raise ProjectError(f"no such skill: {name!r}")
+            shutil.rmtree(target)
+            commit = None
+            if ws.is_dirty():
+                commit = ws.commit_all(f"Remove skill {name} via web console")
+        self._sessions.pop(project_id, None)
+        return {"name": name, "commit": commit}
+
     async def set_token(self, project_id: int, token: str | None) -> dict:
         """Set (or clear, with empty ``token``) a project's GitHub credential.
 
@@ -288,6 +394,8 @@ class ProjectManager:
             branch_started=bool(row["branch"]),
             run_task=self._run_task,
             client_registry=self._client_registry,
+            system_append=row["agent_prompt"],
+            mcp_servers=_parse_mcp_servers(row["mcp_servers"]),
         )
         self._sessions[project_id] = session
         return session

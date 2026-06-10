@@ -224,6 +224,23 @@ input:focus, textarea:focus {
 
 .tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .repo-panel { padding: 24px; overflow-y: auto; }
+/* Agent tab: stacked config sections (prompt, MCP servers, skills). */
+.agent-card { display: flex; flex-direction: column; gap: 22px; max-width: 720px; }
+.agent-section { display: flex; flex-direction: column; gap: 8px; }
+.agent-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); cursor: default;
+}
+.agent-mono { font-family: var(--mono); font-size: 12px; }
+.agent-actions { display: flex; align-items: center; gap: 12px; }
+.agent-status { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.skill-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-item {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 12px; padding: 2px 8px;
+}
+.skill-empty { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.np-hint code { font-size: 10px; }
 .repo-card {
   max-width: 520px;
   background: var(--panel); border: 1px solid var(--line);
