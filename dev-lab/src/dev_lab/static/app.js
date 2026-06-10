@@ -290,12 +290,13 @@ $("#new-project-form").addEventListener("submit", (e) => {
   }
   withButton($("#np-submit"), clone ? "cloning" : "creating", async () => {
     try {
-      await api("/api/projects", {
+      const created = await api("/api/projects", {
         method: "POST",
         body: JSON.stringify({ remote_url, name, github_token, model }),
       });
       $("#new-project-dialog").close();
       await loadProjects();
+      await openProject(created.id);  // jump straight into the new project
     } catch (err) {
       $("#np-error").textContent = err.message;
     }
