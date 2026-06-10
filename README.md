@@ -2,20 +2,26 @@
 
 # claude-agent-team
 
+<img src="hero.png" width="836" alt="System design: browser console and platform clients connected to the always-on dev lab, which talks to Claude and git remotes">
+
 An always-on autonomous development lab: a Claude Agent SDK client that runs
-uninterrupted on a Raspberry Pi 5, does real dev work on git repos, is
+uninterrupted on any always-on host, does real dev work on git repos, is
 steered from a browser (per-project chat), and borrows capabilities it lacks
 (e.g. building and testing on macOS) from platform clients that dial in from
 other machines.
 
+The lab runs anywhere Python 3.11+ and the Claude Code CLI run — a Linux
+server, a Mac mini in a closet, a VPS, or a Raspberry Pi (the reference
+deployment is a Pi 5 behind an Apache TLS proxy, but nothing depends on it).
+
 - **Plan & status:** [`project-plan.md`](project-plan.md) — goal, milestones, decisions, current state.
 - **Architecture & docs:** [`CLAUDE.md`](CLAUDE.md) — orientation + a card index.
-- **Run it:** [`QUICKSTART.md`](QUICKSTART.md) — local use and Pi deployment.
+- **Run it:** [`QUICKSTART.md`](QUICKSTART.md) — local use and production deployment.
 
 ## Repository layout
 
 ```
-dev-lab/                      # the lab: web console + agent loop (runs on the Pi)
+dev-lab/                      # the lab: web console + agent loop (runs on the lab host)
   src/dev_lab/
     web.py                    #   FastAPI console: login, projects, chat WS, client WS
     projects.py               #   ProjectManager: clone/init, repo actions, uploads
@@ -27,7 +33,7 @@ dev-lab/                      # the lab: web console + agent loop (runs on the P
 chat-client/                  # CLI control surface (older, single-project; secondary)
 extensions/
   platform-client/            # platform-client runtime + manifest sync (pip-installable)
-deploy/                       # systemd units + Apache reverse-proxy config + Pi README
+deploy/                       # systemd templates + Apache/nginx proxy configs + site dirs
 cards/                        # Context Cards (see CLAUDE.md for the index)
 ```
 
@@ -36,7 +42,7 @@ Each component is independently deployable with its **own venv** and its own
 
 ## Quickstart
 
-Requires Python 3.11+ and `make`.
+Requires Python 3.11+, git, and `make`.
 
 ```sh
 make setup    # create a venv per component, install editable + dev deps
@@ -54,8 +60,9 @@ platform-client connect --lab ws://<lab-host>:8770/ws/client --name mac \
   --capability run_tests --capability build
 ```
 
-See [`QUICKSTART.md`](QUICKSTART.md) for the full walkthrough and the
-production Pi setup (systemd + Apache TLS reverse proxy).
+See [`QUICKSTART.md`](QUICKSTART.md) for the full walkthrough, and `deploy/`
+for production setup (systemd service template + Apache or nginx TLS
+reverse-proxy configs; `deploy/home/` is a complete worked example).
 
 ## Authentication — the `claude` CLI, no API key
 
@@ -83,14 +90,16 @@ Everything else is per-feature, not global:
 
 ## Status
 
-The lab is live (deployed on a Pi 5 behind Apache TLS). The web console covers
-multi-user login, projects (clone a URL or git-init a blank repo), per-project
-chat with a resumed agent session and per-project model selection, repo
-actions (fetch / pull / push / reset / rebase-on-base / merge / download-zip /
-remove project), a file browser that can also browse connected clients'
-mirrors, and uploads (into the repo, or as chat attachments for the agent to
-look at). Platform clients dial the lab over WebSocket, sync the working tree
-via content-hash manifests, run builds/tests in a warm mirror, and report
-results + changed files; the agent drives them through `mcp__lab`
-(`list_clients` / `run_on_client` / `fetch_from_client`). See
-`project-plan.md` for milestones and what's still open.
+The lab is live (reference deployment: a Raspberry Pi 5 behind Apache TLS).
+The web console covers multi-user login with strict per-user project lists,
+projects (clone a URL or git-init a blank repo), per-project chat with a
+resumed agent session, model selection, and agent setup (project prompt, MCP
+servers, repo-managed skills), repo actions (fetch / pull / push / reset /
+rebase-on-base / merge / download-zip / remove project), a file browser that
+can also browse connected clients' mirrors, and uploads (into the repo, or as
+chat attachments for the agent to look at). Platform clients dial the lab
+over WebSocket, sync the working tree via content-hash manifests into
+per-lab-namespaced mirrors, run builds/tests there, and report results +
+changed files; the agent drives them through `mcp__lab` (`list_clients` /
+`run_on_client` / `fetch_from_client`). See `project-plan.md` for milestones
+and what's still open.
