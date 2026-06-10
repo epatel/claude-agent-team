@@ -12,8 +12,18 @@ import json
 import mimetypes
 import sqlite3
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.staticfiles import StaticFiles
@@ -334,6 +344,55 @@ def build_app(
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
         return result
+
+    # 25 MB per uploaded file — generous for assets, small enough not to hurt
+    # the Pi (uploads are buffered in memory before writing).
+    _MAX_UPLOAD = 25 * 1024 * 1024
+
+    async def _read_uploads(files: list[UploadFile]) -> tuple[list[tuple[str, bytes]], dict]:
+        good: list[tuple[str, bytes]] = []
+        errors: dict[str, str] = {}
+        for f in files:
+            name = f.filename or "file"
+            data = await f.read()
+            if len(data) > _MAX_UPLOAD:
+                errors[name] = f"too large ({len(data)} bytes; limit {_MAX_UPLOAD})"
+            else:
+                good.append((name, data))
+        return good, errors
+
+    @app.post("/api/projects/{project_id}/upload")
+    async def upload_project_files(
+        project_id: int,
+        request: Request,
+        files: Annotated[list[UploadFile], File()],
+        dest: Annotated[str, Form()] = "",
+    ) -> dict:
+        """Upload files into the working tree (committed straight away)."""
+        current_user(request)
+        good, errors = await _read_uploads(files)
+        try:
+            result = await pm.upload_files(project_id, good, dest=dest)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        result["errors"].update(errors)
+        await bus.publish({"type": "projects_changed"})
+        return result
+
+    @app.post("/api/projects/{project_id}/chat-upload")
+    async def upload_chat_files(
+        project_id: int,
+        request: Request,
+        files: Annotated[list[UploadFile], File()],
+    ) -> dict:
+        """Stash chat attachments in .lab-uploads/ for the agent to read."""
+        current_user(request)
+        good, errors = await _read_uploads(files)
+        try:
+            saved = await pm.chat_uploads(project_id, good)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"saved": saved, "errors": errors}
 
     @app.get("/api/projects/{project_id}/archive")
     async def archive_project(project_id: int, request: Request) -> Response:

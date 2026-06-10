@@ -48,6 +48,16 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   hand the whole job to the project's agent as a chat message ("rebase and
   resolve …"), which is the conflict-resolution path. The working tree is left
   on the chat branch either way.
+- **Uploads.** Two distinct flows. **Into the repo**: *upload files* in the file
+  browser's lab tab (`POST …/upload`, multipart + a `dest` dir field) writes
+  into the working tree and **commits immediately** — a dangling uncommitted
+  upload would block the next chat session (`LabSession` refuses a dirty tree).
+  **For the chat**: the `+` button (or pasting a file/screenshot into the input)
+  uploads to `.lab-uploads/` in the clone (`POST …/chat-upload`), shows pending
+  chips, and the sent message lists the relative paths for the agent to read.
+  `.lab-uploads/` is excluded from commits via `.git/info/exclude` (local-only),
+  from client mirrors via manifest `DEFAULT_IGNORES`, and survives **reset**
+  (clean runs without `-x`). Both endpoints cap files at 25 MB.
 - **Repair & download.** **reset** (`POST …/reset`, confirm-gated) discards all
   uncommitted changes and untracked files in the working tree (ignored files and
   commits survive) — the cleanup for a tree left dirty by a crashed run.

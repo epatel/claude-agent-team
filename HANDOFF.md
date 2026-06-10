@@ -11,9 +11,10 @@ An always-on Claude Agent SDK "dev lab". Three pieces:
   (multi-user), a `labs/` directory of projects (each its own git clone + Claude
   agent/context), browser chat with markdown + mermaid, repo actions
   (fetch/pull/push/reset/rebase-on-base/merge/browse/download-zip — rebase
-  conflicts can be handed to the agent via chat), **per-project model
-  selection** (switchable mid-chat), and a connected-clients sidebar. Done and
-  live-verified.
+  conflicts can be handed to the agent via chat), uploads (into the repo, or
+  as chat attachments via `.lab-uploads/` for the agent to look at),
+  **per-project model selection** (switchable mid-chat), and a
+  connected-clients sidebar. Done and live-verified.
 - **Platform clients (M6 v1, new):** capability providers on other machines
   that **dial in to the lab** over WebSocket, announce capabilities, and run
   commands in a manifest-synced mirror of a project's working tree. The agent
@@ -29,7 +30,7 @@ Apache (`deploy/apache-dev-lab.conf`), `CLIENT_TOKEN` set in the Pi's
 
 **What's left:** cross-machine (Mac ↔ Pi) live verification, port
 macos-build-test to the new model, M5 hardening (Secure cookie, WS auth,
-observability). 159 tests pass (dev-lab 125, platform-client 26,
+observability). 162 tests pass (dev-lab 128, platform-client 26,
 chat-client 6, macos-build-test 2), ruff clean.
 
 Git: everything on **`main`**, pushed to

@@ -274,6 +274,8 @@ async function openProject(id) {
   $("#active-branch").textContent = p.branch || "";
   $("#chat-form").hidden = false;
   $("#clear-chat-btn").hidden = false;
+  attachments.length = 0;  // pending attachments belong to the previous project
+  renderAttachChips();
   $("#browse-btn").hidden = false;
   $("#archive-btn").hidden = false;
   $("#fetch-btn").hidden = false;
@@ -601,10 +603,74 @@ function sendChat(text) {
   state.ws.send(JSON.stringify({ type: "message", project_id: state.activeId, text }));
 }
 
+/* ---------- chat attachments ----------
+   Files for the agent to LOOK AT, not repo content: uploaded to .lab-uploads/
+   inside the clone (excluded from commits and client mirrors), referenced by
+   relative path in the message so the agent reads them with its Read tool. */
+const attachments = [];
+
+function renderAttachChips() {
+  const box = $("#attach-chips");
+  box.innerHTML = "";
+  box.hidden = attachments.length === 0;
+  attachments.forEach((a, i) => {
+    const chip = document.createElement("span");
+    chip.className = "attach-chip";
+    chip.textContent = a.name + " ";
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "attach-remove";
+    x.textContent = "×";
+    x.title = "Remove this attachment from the next message (the uploaded file stays in .lab-uploads/)";
+    x.addEventListener("click", () => { attachments.splice(i, 1); renderAttachChips(); });
+    chip.appendChild(x);
+    box.appendChild(chip);
+  });
+}
+
+async function uploadAttachments(fileList) {
+  if (state.activeId == null || !fileList.length) return;
+  const fd = new FormData();
+  for (const f of fileList) fd.append("files", f, f.name);
+  try {
+    const r = await api(`/api/projects/${state.activeId}/chat-upload`, {
+      method: "POST", body: fd, headers: {},
+    });
+    attachments.push(...r.saved);
+    for (const [name, why] of Object.entries(r.errors || {})) {
+      systemLine(`✗ attach ${name} failed: ${why}`, true);
+    }
+  } catch (err) {
+    systemLine(`✗ attach failed: ${err.message}`, true);
+  }
+  renderAttachChips();
+}
+
+$("#attach-btn").addEventListener("click", () => $("#attach-input").click());
+$("#attach-input").addEventListener("change", async (e) => {
+  await uploadAttachments([...e.target.files]);
+  e.target.value = "";
+});
+// Pasting a screenshot (or any file) into the textarea attaches it.
+textarea.addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) {
+    e.preventDefault();
+    uploadAttachments(files);
+  }
+});
+
 $("#chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const text = textarea.value.trim();
-  if (!text) return;
+  let text = textarea.value.trim();
+  if (!text && !attachments.length) return;
+  if (attachments.length) {
+    if (!text) text = "Have a look at the attached file(s).";
+    text += "\n\nAttached files (in the project tree — read them from disk):\n" +
+      attachments.map((a) => `- ${a.path}`).join("\n");
+    attachments.length = 0;
+    renderAttachChips();
+  }
   textarea.value = "";
   textarea.style.height = "auto";
   sendChat(text);
@@ -1050,7 +1116,53 @@ function renderFilesContext(branch, base, missing) {
     warn.textContent = `${missing} file${missing === 1 ? "" : "s"} on ${base} not in this checkout`;
     el.appendChild(warn);
   }
+  appendUploadControls(el);
   el.hidden = false;
+}
+
+// Upload into the working tree (lab source only). Files are committed straight
+// away — a dangling uncommitted upload would block the next chat session.
+function appendUploadControls(el) {
+  const dest = document.createElement("input");
+  dest.className = "upload-dest";
+  dest.placeholder = "dir (empty = root)";
+  dest.title = "Repo-relative directory to upload into; empty for the repo root";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "ghost files-upload";
+  btn.textContent = "upload files";
+  btn.title = "Upload files into the working tree at the given directory. They are committed immediately.";
+  const picker = document.createElement("input");
+  picker.type = "file";
+  picker.multiple = true;
+  picker.hidden = true;
+  btn.addEventListener("click", () => picker.click());
+  picker.addEventListener("change", () => {
+    if (!picker.files.length) return;
+    withButton(btn, "uploading…", async () => {
+      const fd = new FormData();
+      for (const f of picker.files) fd.append("files", f, f.name);
+      fd.append("dest", dest.value.trim());
+      try {
+        const r = await api(`/api/projects/${state.activeId}/upload`, {
+          method: "POST", body: fd, headers: {},
+        });
+        for (const [name, why] of Object.entries(r.errors || {})) {
+          systemLine(`✗ upload ${name} failed: ${why}`, true);
+        }
+        if (r.written.length) {
+          systemLine(`✓ uploaded ${r.written.join(", ")}` +
+            (r.commit ? ` @ ${r.commit.slice(0, 10)}` : ""));
+        }
+        await loadSource();  // fresh tree (and context bar) with the new files
+      } catch (err) {
+        systemLine(`✗ upload failed: ${err.message}`, true);
+      }
+    });
+  });
+  el.appendChild(btn);
+  el.appendChild(dest);
+  el.appendChild(picker);
 }
 
 const STATUS_LABEL = { new: "A", modified: "M", deleted: "D" };

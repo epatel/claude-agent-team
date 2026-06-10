@@ -24,6 +24,7 @@ DEFAULT_IGNORES = frozenset(
         ".ruff_cache",
         ".mypy_cache",
         ".DS_Store",
+        ".lab-uploads",  # web-console chat attachments — lab-local scratch
     }
 )
 

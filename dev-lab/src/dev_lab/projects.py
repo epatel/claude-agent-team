@@ -14,9 +14,10 @@ import io
 import re
 import sqlite3
 import subprocess
+import uuid
 import zipfile
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from . import db
 from .agent import run_task as _run_task
@@ -327,6 +328,67 @@ class ProjectManager:
                     "files": exc.files,
                 }
         return {"status": "ok", "base": base, "branch": branch, "commit": commit}
+
+    async def upload_files(
+        self, project_id: int, files: list[tuple[str, bytes]], dest: str = ""
+    ) -> dict:
+        """Write uploaded files into a project's working tree and commit them.
+
+        ``dest`` is a repo-relative directory ("" = root). The commit keeps the
+        no-uncommitted-changes invariant a new chat session insists on — an
+        upload left dangling would block the next conversation. Traversal and
+        ``.git`` targets are refused per file, not for the whole batch.
+        """
+        from platform_client import manifest
+
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            written: list[str] = []
+            errors: dict[str, str] = {}
+            for name, data in files:
+                rel = f"{dest.strip('/')}/{Path(name).name}" if dest.strip("/") else Path(name).name
+                if ".git" in PurePosixPath(rel).parts:
+                    errors[rel] = "refused: targets .git"
+                    continue
+                try:
+                    manifest.write_file(ws.path, rel, data)
+                except manifest.PathOutsideRoot:
+                    errors[rel] = "path escapes the project root"
+                    continue
+                written.append(rel)
+            commit = None
+            if written and ws.is_dirty():
+                what = written[0] if len(written) == 1 else f"{len(written)} files"
+                commit = ws.commit_all(f"Upload {what} via web console")
+        return {"written": sorted(written), "errors": errors, "commit": commit}
+
+    async def chat_uploads(self, project_id: int, files: list[tuple[str, bytes]]) -> list[dict]:
+        """Save chat attachments under ``.lab-uploads/`` in the working tree.
+
+        Scratch space for "look at this" files: inside the clone so the agent
+        can read them with a relative path, but excluded from commits via
+        ``.git/info/exclude`` (local-only, never touches tracked files) and
+        from client mirrors via the manifest DEFAULT_IGNORES. A random prefix
+        keeps repeat uploads of the same filename from colliding.
+        """
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            exclude = ws.path / ".git" / "info" / "exclude"
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            current = exclude.read_text() if exclude.exists() else ""
+            if "/.lab-uploads/" not in current:
+                exclude.write_text(current.rstrip("\n") + "\n/.lab-uploads/\n")
+            updir = ws.path / ".lab-uploads"
+            updir.mkdir(exist_ok=True)
+            saved: list[dict] = []
+            for name, data in files:
+                safe = Path(name).name or "file"
+                target = updir / f"{uuid.uuid4().hex[:8]}-{safe}"
+                target.write_bytes(data)
+                saved.append({"name": safe, "path": f".lab-uploads/{target.name}"})
+        return saved
 
     async def reset_working_tree(self, project_id: int) -> dict:
         """Discard uncommitted changes in a project's working tree.

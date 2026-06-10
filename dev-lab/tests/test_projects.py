@@ -188,6 +188,68 @@ def test_rebase_without_work_errors(tmp_path):
         asyncio.run(pm.rebase_onto_base(pid))
 
 
+def test_upload_files_writes_commits_and_guards(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    clone = labs / "src"
+
+    result = asyncio.run(pm.upload_files(
+        pid,
+        [
+            ("notes.txt", b"hello"),
+            ("../escape.txt", b"nope"),          # name is flattened, not traversal
+            (".gitignore-fake", b"x"),
+        ],
+        dest="docs/img",
+    ))
+
+    assert sorted(result["written"]) == [
+        "docs/img/.gitignore-fake", "docs/img/escape.txt", "docs/img/notes.txt",
+    ]
+    assert (clone / "docs" / "img" / "notes.txt").read_bytes() == b"hello"
+    assert result["commit"]
+    # committed straight away — the tree is clean, so a chat session can start
+    status = subprocess.run(
+        ["git", "-C", str(clone), "status", "--porcelain"], capture_output=True, text=True
+    ).stdout
+    assert status == ""
+
+    # a dest that targets .git is refused per file
+    bad = asyncio.run(pm.upload_files(pid, [("hook", b"evil")], dest=".git/hooks"))
+    assert bad["written"] == []
+    assert ".git/hooks/hook" in bad["errors"]
+    assert not (clone / ".git" / "hooks" / "hook").exists()
+
+
+def test_chat_uploads_stay_out_of_commits(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    clone = labs / "src"
+
+    saved = asyncio.run(pm.chat_uploads(pid, [("shot.png", b"\x89PNG"), ("shot.png", b"\x89PNG2")]))
+
+    assert len(saved) == 2
+    assert all(s["path"].startswith(".lab-uploads/") for s in saved)
+    assert saved[0]["path"] != saved[1]["path"]  # same filename, no collision
+    for s in saved:
+        assert (clone / s["path"]).exists()
+    # excluded from git entirely: tree still reads as clean (sessions can start,
+    # commit_all won't pick them up, reset's clean -fd won't delete them)
+    status = subprocess.run(
+        ["git", "-C", str(clone), "status", "--porcelain"], capture_output=True, text=True
+    ).stdout
+    assert status == ""
+    assert "/.lab-uploads/" in (clone / ".git" / "info" / "exclude").read_text()
+
+    asyncio.run(pm.reset_working_tree(pid))
+    for s in saved:
+        assert (clone / s["path"]).exists()  # survives a working-tree reset
+
+
 def test_reset_working_tree_discards_uncommitted_changes(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

@@ -365,6 +365,32 @@ button.commit-link:hover { border-color: var(--accent); background: var(--panel-
 .chat-input { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line); }
 .chat-input textarea { flex: 1; resize: none; max-height: 200px; }
 .chat-input button { align-self: flex-end; font-size: 16px; padding: 9px 18px; }
+.chat-input .attach-btn { font-size: 16px; padding: 9px 14px; }
+
+/* Pending chat attachments (already uploaded to .lab-uploads/, sent with the
+   next message). */
+.attach-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 24px 0; border-top: 1px solid var(--line);
+}
+.attach-chips[hidden] { display: none; }
+.attach-chip {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 12px; padding: 2px 8px;
+}
+.attach-remove {
+  background: none; border: 0; color: var(--faint);
+  font-size: 12px; padding: 0 2px; cursor: pointer;
+}
+.attach-remove:hover { color: var(--text); }
+
+/* Upload-into-repo controls in the file browser's context bar. */
+.files-upload { padding: 2px 10px; font-size: 11px; margin-left: auto; }
+.upload-dest {
+  font-family: var(--mono); font-size: 11px; width: 140px;
+  background: transparent; color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px;
+}
 
 /* ---------- modals: commit diff viewer + repo browser ---------- */
 .modal {

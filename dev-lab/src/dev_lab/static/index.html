@@ -103,7 +103,11 @@
         <div id="transcript" class="transcript">
           <div class="empty" id="empty-state">select or clone a project to start talking</div>
         </div>
+        <div id="attach-chips" class="attach-chips" hidden></div>
         <form id="chat-form" class="chat-input" hidden>
+          <button type="button" id="attach-btn" class="attach-btn ghost" aria-label="attach files"
+            title="Attach files for the agent to look at (saved to .lab-uploads/, never committed). Pasting an image works too.">+</button>
+          <input id="attach-input" type="file" multiple hidden />
           <textarea id="chat-text" rows="1" placeholder="message the agent"
             title="⏎ to send, ⇧⏎ for a newline"></textarea>
           <button type="submit" aria-label="send" title="Send this message to the agent">↦</button>

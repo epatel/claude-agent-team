@@ -429,6 +429,47 @@ def test_ws_requires_auth(tmp_path):
             pass
 
 
+def test_upload_endpoints(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+
+    # repo upload: lands in the tree (committed) and is readable back
+    r = client.post(
+        f"/api/projects/{pid}/upload",
+        files=[("files", ("notes.txt", b"hello", "text/plain"))],
+        data={"dest": "docs"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["written"] == ["docs/notes.txt"]
+    assert body["commit"]
+    assert client.get(
+        f"/api/projects/{pid}/file", params={"path": "docs/notes.txt"}
+    ).json()["content"] == "hello"
+
+    # chat upload: saved under .lab-uploads/, path comes back for the message
+    r = client.post(
+        f"/api/projects/{pid}/chat-upload",
+        files=[("files", ("shot.png", b"\x89PNG", "image/png"))],
+    )
+    assert r.status_code == 200
+    saved = r.json()["saved"]
+    assert len(saved) == 1
+    assert saved[0]["name"] == "shot.png"
+    assert saved[0]["path"].startswith(".lab-uploads/")
+
+    # both require auth
+    fresh, _ = _client(tmp_path / "fresh")
+    assert fresh.post(
+        "/api/projects/1/upload", files=[("files", ("a", b"x", "text/plain"))]
+    ).status_code == 401
+    assert fresh.post(
+        "/api/projects/1/chat-upload", files=[("files", ("a", b"x", "text/plain"))]
+    ).status_code == 401
+
+
 def test_rebase_reset_archive_endpoints(tmp_path):
     import io
     import zipfile
