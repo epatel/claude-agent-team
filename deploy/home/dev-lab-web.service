@@ -1,13 +1,11 @@
 # systemd unit for the v2 web console (see cards/deployment.md, cards/web-console.md).
-# This is a TEMPLATE — replace `pi` with your service user and adjust paths,
-# then copy to /etc/systemd/system/dev-lab-web.service and:
+# Copy to /etc/systemd/system/dev-lab-web.service, edit the paths/user, then:
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now dev-lab-web
 #   journalctl -u dev-lab-web -f      # follow logs
 #
 # Binds loopback only — expose it through a TLS-terminating reverse proxy
 # (e.g. Apache; see deploy/apache-dev-lab.conf for a /dev-lab/ path-prefix setup).
-# A concrete, working example lives in deploy/home/ (the reference deployment).
 
 [Unit]
 Description=claude-agent-team dev lab web console
@@ -18,18 +16,18 @@ Wants=network-online.target
 Type=simple
 # MUST be the user that ran `claude` login — subscription credentials live in
 # that user's ~/.claude (see cards/subscription-auth.md).
-User=pi
-WorkingDirectory=/home/pi/dev-lab/claude-agent-team
+User=epatel
+WorkingDirectory=/home/epatel/dev-lab/claude-agent-team
 # Optional overrides only (MODEL, CLIENT_TOKEN); chmod 600. GitHub auth is per
 # project (stored in the runtime DB, entered in the web console); Claude auth is
 # the `claude` login. Do NOT put ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN here —
 # they override subscription auth and bill the API.
-EnvironmentFile=/home/pi/dev-lab/claude-agent-team/dev-lab/.env
+EnvironmentFile=/home/epatel/dev-lab/claude-agent-team/dev-lab/.env
 # The Agent SDK shells out to the `claude` CLI — make sure the user-local
 # install location is on the service PATH (systemd's default omits ~/.local/bin).
-Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/pi/dev-lab/claude-agent-team/dev-lab/.venv/bin/dev-lab web \
-  --labs-dir /home/pi/dev-lab/labs \
+Environment=PATH=/home/epatel/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/epatel/dev-lab/claude-agent-team/dev-lab/.venv/bin/dev-lab web \
+  --labs-dir /home/epatel/dev-lab/labs \
   --host 127.0.0.1 \
   --port 8770
 Restart=always
