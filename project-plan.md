@@ -137,9 +137,12 @@ manifests, deltas, changed-report), `platform_client.runtime` +
 `platform-client connect` CLI (dial, hello, sync mirror, run, report, reconnect
 loop), `dev_lab/clients.py` (`ClientRegistry`: presence, task dispatch, file
 serving) + `/ws/client` and `/api/clients` in web.py (optional `CLIENT_TOKEN`),
-agent tools `mcp__lab` `list_clients`/`run_on_client` (in-process SDK MCP
-server bound to the project tree), and a connected-clients section in the
-console sidebar. Not yet live-verified against a real second machine.
+agent tools `mcp__lab` `list_clients`/`run_on_client`/`fetch_from_client`
+(in-process SDK MCP server bound to the project tree), and a connected-clients
+section in the console sidebar. `run_on_client` takes `preserve` glob patterns
+so build artifacts/caches survive between runs (default stays clean-sync);
+`fetch_from_client` pulls mirror files (e.g. built binaries) back into the
+lab's working tree. Not yet live-verified against a real second machine.
 `extensions/macos-build-test` still runs the old SSE model until ported.
 
 Next: **M6 live verification** (run `platform-client connect` from the macOS

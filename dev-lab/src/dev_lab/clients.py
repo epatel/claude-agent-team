@@ -6,14 +6,18 @@ registry. The lab dispatches commands to them and serves the manifest-sync file
 requests that move the project's working tree (uncommitted state included) into
 the client's mirror.
 
-Wire protocol (JSON text frames; the lab owns this contract):
+Wire protocol (JSON text frames; the lab owns this contract; ``task_id`` is a
+correlation id — fetches use it too):
 
   client → lab   {type: "hello", name, platform, capabilities, token?}
   lab → client   {type: "hello_ok", name}            # final (deduped) name
-  lab → client   {type: "task", task_id, project, command, manifest}
+  lab → client   {type: "task", task_id, project, command, manifest, preserve?}
   client → lab   {type: "need", task_id, paths}      # stale/missing in mirror
   lab → client   {type: "file", task_id, path, data} # base64; data=None + error on read failure
   client → lab   {type: "result", task_id, ok, returncode, stdout, stderr, changed}
+  lab → client   {type: "fetch", task_id, project, paths}   # pull mirror files back
+  client → lab   {type: "file", task_id, path, data}        # same frame, reverse direction
+  client → lab   {type: "fetch_done", task_id}
 """
 
 from __future__ import annotations
@@ -41,12 +45,20 @@ class _Task:
 
 
 @dataclass
+class _Fetch:
+    future: asyncio.Future
+    files: dict[str, bytes] = field(default_factory=dict)
+    errors: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class _Client:
     name: str
     platform: str
     capabilities: list[dict]
     send: Send
     tasks: dict[str, _Task] = field(default_factory=dict)
+    fetches: dict[str, _Fetch] = field(default_factory=dict)
 
 
 class ClientRegistry:
@@ -70,13 +82,15 @@ class ClientRegistry:
         return final
 
     def unregister(self, name: str) -> None:
-        """Drop a client; any in-flight task fails rather than hangs."""
+        """Drop a client; any in-flight task or fetch fails rather than hangs."""
         client = self._clients.pop(name, None)
         if client is None:
             return
-        for task in client.tasks.values():
-            if not task.future.done():
-                task.future.set_exception(ClientError(f"client {name} disconnected"))
+        pending = [t.future for t in client.tasks.values()]
+        pending += [f.future for f in client.fetches.values()]
+        for future in pending:
+            if not future.done():
+                future.set_exception(ClientError(f"client {name} disconnected"))
 
     def list(self) -> list[dict]:
         return [
@@ -93,14 +107,22 @@ class ClientRegistry:
     # -- task dispatch ---------------------------------------------------------
 
     async def run(
-        self, name: str, *, project_root: Path, command: str, timeout: float = 900.0
+        self,
+        name: str,
+        *,
+        project_root: Path,
+        command: str,
+        preserve: list[str] | None = None,
+        timeout: float = 900.0,
     ) -> dict:
         """Sync ``project_root`` to ``name``'s mirror and run ``command`` there.
 
-        Returns the client's result dict (ok/returncode/stdout/stderr/changed,
-        plus the manifest hash that identifies exactly what ran). Raises
-        ``ClientError`` if the client is unknown, disconnects mid-task, or the
-        task times out.
+        ``preserve`` is a list of glob patterns for mirror paths the sync must
+        NOT delete even though they aren't in the source tree — build artifacts
+        and caches that should survive between runs. Returns the client's
+        result dict (ok/returncode/stdout/stderr/changed, plus the manifest
+        hash that identifies exactly what ran). Raises ``ClientError`` if the
+        client is unknown, disconnects mid-task, or the task times out.
         """
         client = self._clients.get(name)
         if client is None:
@@ -110,15 +132,16 @@ class ClientRegistry:
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         client.tasks[task_id] = _Task(root=project_root, future=future)
         try:
-            await client.send(
-                {
-                    "type": "task",
-                    "task_id": task_id,
-                    "project": project_root.name,
-                    "command": command,
-                    "manifest": source,
-                }
-            )
+            message = {
+                "type": "task",
+                "task_id": task_id,
+                "project": project_root.name,
+                "command": command,
+                "manifest": source,
+            }
+            if preserve:
+                message["preserve"] = list(preserve)
+            await client.send(message)
             try:
                 result = await asyncio.wait_for(future, timeout)
             except TimeoutError:
@@ -127,6 +150,35 @@ class ClientRegistry:
         finally:
             client.tasks.pop(task_id, None)
 
+    async def fetch(
+        self, name: str, *, project: str, paths: list[str], timeout: float = 120.0
+    ) -> dict:
+        """Pull files from ``name``'s mirror of ``project`` back to the lab.
+
+        The reverse of manifest sync — how run artifacts (binaries, reports)
+        reach the lab. Returns ``{"files": {path: bytes}, "errors": {path:
+        reason}}``; a missing or oversized file is an error entry, not an
+        exception. Raises ``ClientError`` on unknown client / disconnect /
+        timeout.
+        """
+        client = self._clients.get(name)
+        if client is None:
+            raise ClientError(f"no connected client named {name!r}")
+        fetch_id = uuid.uuid4().hex
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        client.fetches[fetch_id] = _Fetch(future=future)
+        try:
+            await client.send(
+                {"type": "fetch", "task_id": fetch_id, "project": project,
+                 "paths": list(paths)}
+            )
+            try:
+                return await asyncio.wait_for(future, timeout)
+            except TimeoutError:
+                raise ClientError(f"fetch from {name} timed out after {timeout}s") from None
+        finally:
+            client.fetches.pop(fetch_id, None)
+
     # -- incoming messages -----------------------------------------------------
 
     async def handle_message(self, name: str, msg: dict) -> None:
@@ -134,22 +186,32 @@ class ClientRegistry:
         client = self._clients.get(name)
         if client is None:
             return
-        task = client.tasks.get(msg.get("task_id", ""))
-        if task is None:
-            return  # task finished/timed out — stale traffic is dropped
-        if msg.get("type") == "need":
-            for path in msg.get("paths", []):
-                await client.send(self._file_message(task.root, msg["task_id"], path))
-        elif msg.get("type") == "result" and not task.future.done():
-            task.future.set_result(
-                {
-                    "ok": bool(msg.get("ok")),
-                    "returncode": msg.get("returncode"),
-                    "stdout": msg.get("stdout", ""),
-                    "stderr": msg.get("stderr", ""),
-                    "changed": msg.get("changed", {}),
-                }
-            )
+        correlation = msg.get("task_id", "")
+        task = client.tasks.get(correlation)
+        fetch = client.fetches.get(correlation)
+        if task is not None:
+            if msg.get("type") == "need":
+                for path in msg.get("paths", []):
+                    await client.send(self._file_message(task.root, correlation, path))
+            elif msg.get("type") == "result" and not task.future.done():
+                task.future.set_result(
+                    {
+                        "ok": bool(msg.get("ok")),
+                        "returncode": msg.get("returncode"),
+                        "stdout": msg.get("stdout", ""),
+                        "stderr": msg.get("stderr", ""),
+                        "changed": msg.get("changed", {}),
+                    }
+                )
+        elif fetch is not None:
+            if msg.get("type") == "file":
+                if msg.get("data") is None:
+                    fetch.errors[msg.get("path", "?")] = str(msg.get("error") or "unreadable")
+                else:
+                    fetch.files[msg["path"]] = base64.b64decode(msg["data"])
+            elif msg.get("type") == "fetch_done" and not fetch.future.done():
+                fetch.future.set_result({"files": fetch.files, "errors": fetch.errors})
+        # unknown correlation id: finished/timed out — stale traffic is dropped
 
     @staticmethod
     def _file_message(root: Path, task_id: str, path: str) -> dict:

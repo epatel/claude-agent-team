@@ -137,6 +137,66 @@ def test_sync_error_aborts_task_without_running(tmp_path):
     assert not (tmp_path / "mirrors" / "p" / "should_not_exist").exists()
 
 
+def test_preserve_keeps_artifacts_and_excludes_them_from_changed(tmp_path):
+    mirror = tmp_path / "mirrors" / "proj"
+    mirror.mkdir(parents=True)
+    (mirror / "keep.txt").write_text("same")
+    (mirror / "hello.bin").write_text("built earlier")  # artifact, not in source
+    keep_hash = manifest.scan(mirror)["keep.txt"]
+
+    task = {
+        "type": "task",
+        "task_id": "t1",
+        "project": "proj",
+        "command": "true",
+        "manifest": {"keep.txt": keep_hash},
+        "preserve": ["*.bin"],
+    }
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, task])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    assert (mirror / "hello.bin").exists()  # survived the sync
+    result = conn.sent[-1]
+    assert result["ok"] is True
+    # untouched preserved artifact must not show up as "added" every run
+    assert result["changed"] == {"added": [], "modified": [], "deleted": []}
+
+
+def test_fetch_returns_files_and_errors_then_done(tmp_path):
+    mirror = tmp_path / "mirrors" / "proj"
+    mirror.mkdir(parents=True)
+    (mirror / "artifact.txt").write_text("payload")
+
+    fetch = {"type": "fetch", "task_id": "f1", "project": "proj",
+             "paths": ["artifact.txt", "missing.txt", "../escape"]}
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, fetch])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    frames = [m for m in conn.sent if m.get("task_id") == "f1"]
+    by_path = {f["path"]: f for f in frames if f["type"] == "file"}
+    assert base64.b64decode(by_path["artifact.txt"]["data"]) == b"payload"
+    assert by_path["missing.txt"]["data"] is None and by_path["missing.txt"]["error"]
+    assert by_path["../escape"]["data"] is None and by_path["../escape"]["error"]
+    assert frames[-1]["type"] == "fetch_done"
+
+
+def test_fetch_rejects_oversized_files(tmp_path, monkeypatch):
+    from platform_client import manifest as mmod
+
+    monkeypatch.setattr(mmod, "MAX_FILE_BYTES", 4)
+    mirror = tmp_path / "mirrors" / "proj"
+    mirror.mkdir(parents=True)
+    (mirror / "big.bin").write_text("way too large")
+
+    fetch = {"type": "fetch", "task_id": "f1", "project": "proj", "paths": ["big.bin"]}
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, fetch])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    frame = next(m for m in conn.sent if m.get("type") == "file")
+    assert frame["data"] is None
+    assert "too large" in frame["error"]
+
+
 def test_project_name_cannot_traverse_mirrors_root(tmp_path):
     task = {"type": "task", "task_id": "t1", "project": "../../evil",
             "command": "true", "manifest": {}}

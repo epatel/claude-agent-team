@@ -117,6 +117,68 @@ def test_file_requests_outside_root_report_error_not_content(tmp_path):
     assert escape["error"]
 
 
+def test_run_passes_preserve_patterns_to_the_task(tmp_path):
+    sent = []
+    reg, name = _registry_with_client(sent)
+
+    async def scenario():
+        run = asyncio.create_task(
+            reg.run(name, project_root=tmp_path, command="make", preserve=["target/*"])
+        )
+        await asyncio.sleep(0)
+        assert sent[0]["preserve"] == ["target/*"]
+        await reg.handle_message(name, {
+            "type": "result", "task_id": sent[0]["task_id"],
+            "ok": True, "returncode": 0, "stdout": "", "stderr": "", "changed": {},
+        })
+        await run
+
+    asyncio.run(scenario())
+
+
+def test_fetch_collects_files_and_errors(tmp_path):
+    sent = []
+    reg, name = _registry_with_client(sent)
+
+    async def scenario():
+        fetch = asyncio.create_task(
+            reg.fetch(name, project="proj", paths=["good.txt", "bad.txt"])
+        )
+        await asyncio.sleep(0)
+        msg = sent[0]
+        assert msg["type"] == "fetch"
+        assert msg["project"] == "proj"
+        fid = msg["task_id"]
+        await reg.handle_message(name, {
+            "type": "file", "task_id": fid, "path": "good.txt",
+            "data": base64.b64encode(b"bytes").decode(),
+        })
+        await reg.handle_message(name, {
+            "type": "file", "task_id": fid, "path": "bad.txt",
+            "data": None, "error": "missing",
+        })
+        await reg.handle_message(name, {"type": "fetch_done", "task_id": fid})
+        return await fetch
+
+    out = asyncio.run(scenario())
+    assert out["files"] == {"good.txt": b"bytes"}
+    assert out["errors"] == {"bad.txt": "missing"}
+
+
+def test_fetch_fails_on_disconnect(tmp_path):
+    sent = []
+    reg, name = _registry_with_client(sent)
+
+    async def scenario():
+        fetch = asyncio.create_task(reg.fetch(name, project="p", paths=["a"]))
+        await asyncio.sleep(0)
+        reg.unregister(name)
+        return await fetch
+
+    with pytest.raises(ClientError, match="disconnected"):
+        asyncio.run(scenario())
+
+
 # --- /ws/client endpoint -----------------------------------------------------
 
 def _client_app(tmp_path, **config_kwargs):

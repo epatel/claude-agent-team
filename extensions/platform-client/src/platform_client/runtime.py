@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fnmatch
 import subprocess
 import sys
 from pathlib import Path
@@ -95,17 +96,29 @@ class ClientRuntime:
                 return
             if msg.get("type") == "task":
                 await self._handle_task(conn, msg)
+            elif msg.get("type") == "fetch":
+                await self._handle_fetch(conn, msg)
+
+    def _mirror_root(self, project: object) -> Path:
+        # The project name comes off the wire — keep it a single path component.
+        return self.mirrors_root / Path(str(project or "project")).name
 
     async def _handle_task(self, conn: Connection, msg: dict) -> None:
         task_id = msg["task_id"]
         source: dict[str, str] = msg.get("manifest", {})
-        # The project name comes off the wire — keep it a single path component.
-        root = self.mirrors_root / Path(str(msg.get("project") or "project")).name
+        preserve = [str(p) for p in msg.get("preserve") or []]
+        root = self._mirror_root(msg.get("project"))
         root.mkdir(parents=True, exist_ok=True)
 
         # Sync the mirror to the source manifest: fetch the delta, delete strays
-        # (stray deletion also removes the previous run's artifacts).
+        # (stray deletion also removes the previous run's artifacts — except
+        # paths matching ``preserve``, which survive between runs).
         need, delete = manifest.delta(source, manifest.scan(root))
+        if preserve:
+            delete = [
+                p for p in delete
+                if not any(fnmatch.fnmatch(p, pattern) for pattern in preserve)
+            ]
         if need:
             await conn.send({"type": "need", "task_id": task_id, "paths": need})
             remaining = set(need)
@@ -124,15 +137,35 @@ class ClientRuntime:
                 remaining.discard(frame["path"])
         manifest.delete_files(root, delete)
 
-        # The mirror now equals ``source``, so it doubles as the pre-run manifest.
+        # Pre-run manifest for the changed-report: without preserve the mirror
+        # now equals ``source``; with preserve it also holds kept artifacts, so
+        # rescan — otherwise untouched artifacts would show as "added" each run.
+        before = manifest.scan(root) if preserve else source
         ok, returncode, stdout, stderr = await asyncio.to_thread(
             _run_command, root, msg["command"], self.command_timeout
         )
-        changed = manifest.changed(source, manifest.scan(root))
+        changed = manifest.changed(before, manifest.scan(root))
         await self._send_result(
             conn, task_id, ok=ok, returncode=returncode, stdout=stdout,
             stderr=stderr, changed=changed,
         )
+
+    async def _handle_fetch(self, conn: Connection, msg: dict) -> None:
+        """Send mirror files back to the lab (the reverse of manifest sync)."""
+        task_id = msg["task_id"]
+        root = self._mirror_root(msg.get("project"))
+        for path in msg.get("paths", []):
+            frame: dict = {"type": "file", "task_id": task_id, "path": path}
+            try:
+                data = manifest.read_file(root, path)
+                if len(data) > manifest.MAX_FILE_BYTES:
+                    frame.update(data=None, error=f"file too large ({len(data)} bytes)")
+                else:
+                    frame["data"] = base64.b64encode(data).decode()
+            except (OSError, manifest.PathOutsideRoot) as exc:
+                frame.update(data=None, error=str(exc))
+            await conn.send(frame)
+        await conn.send({"type": "fetch_done", "task_id": task_id})
 
     @staticmethod
     async def _send_result(

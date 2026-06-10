@@ -77,19 +77,83 @@ def _client_tools(registry: ClientRegistry, project_root: Path) -> list:
         "mirror of this project's current working tree (uncommitted changes "
         "included). Use list_clients first to see who is connected. Returns "
         "ok/returncode/stdout/stderr plus the files the run changed on the "
-        "client. Use this to build or test on a platform the lab itself lacks.",
-        {"client": str, "command": str},
+        "client. By default the sync deletes mirror files not in the project "
+        "tree — including the previous run's build artifacts; pass `preserve` "
+        "glob patterns to keep artifacts/caches between runs (e.g. "
+        "[\"target/*\", \"example/hello\"]). Use this to build or test on a "
+        "platform the lab itself lacks.",
+        {
+            "type": "object",
+            "properties": {
+                "client": {"type": "string", "description": "client name from list_clients"},
+                "command": {"type": "string", "description": "shell command to run in the mirror"},
+                "preserve": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "glob patterns of mirror paths to keep across runs "
+                                   "(note: * also matches across / )",
+                },
+            },
+            "required": ["client", "command"],
+        },
     )
     async def run_on_client(args: dict) -> dict:
         try:
             result = await registry.run(
-                str(args["client"]), project_root=project_root, command=str(args["command"])
+                str(args["client"]),
+                project_root=project_root,
+                command=str(args["command"]),
+                preserve=[str(p) for p in args.get("preserve") or []],
             )
         except ClientError as exc:
             return {"content": [{"type": "text", "text": f"error: {exc}"}], "is_error": True}
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
-    return [list_clients, run_on_client]
+    @tool(
+        "fetch_from_client",
+        "Copy files from a platform client's project mirror into this "
+        "project's working tree on the lab — how run artifacts (binaries, "
+        "reports, logs) get back from the client. Paths are relative to the "
+        "project root, exactly as listed in a run's changed-files report. "
+        "Fetched files land in the working tree, so they will be committed "
+        "with the session unless .gitignored. Returns which paths were "
+        "written and any per-path errors.",
+        {
+            "type": "object",
+            "properties": {
+                "client": {"type": "string", "description": "client name from list_clients"},
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "mirror-relative paths to fetch",
+                },
+            },
+            "required": ["client", "paths"],
+        },
+    )
+    async def fetch_from_client(args: dict) -> dict:
+        from platform_client import manifest
+
+        try:
+            fetched = await registry.fetch(
+                str(args["client"]),
+                project=project_root.name,
+                paths=[str(p) for p in args.get("paths") or []],
+            )
+        except ClientError as exc:
+            return {"content": [{"type": "text", "text": f"error: {exc}"}], "is_error": True}
+        written: list[str] = []
+        errors = dict(fetched["errors"])
+        for path, data in fetched["files"].items():
+            try:
+                manifest.write_file(project_root, path, data)
+                written.append(path)
+            except manifest.PathOutsideRoot:
+                errors[path] = "path escapes the project root"
+        summary = {"written": sorted(written), "errors": errors}
+        return {"content": [{"type": "text", "text": json.dumps(summary)}]}
+
+    return [list_clients, run_on_client, fetch_from_client]
 
 
 def _clients_mcp_server(registry: ClientRegistry, project_root: Path):

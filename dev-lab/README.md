@@ -29,7 +29,7 @@ add it (public repos need none), so `.env` carries no GitHub credential:
 
 ```sh
 claude               # complete login; over SSH press `c` to copy the URL, paste the code back
-cp .env.example .env # optional overrides only (MODEL, EXTENSIONS)
+cp .env.example .env # optional overrides only (MODEL, CLIENT_TOKEN)
 ```
 
 Do not set `ANTHROPIC_API_KEY` — it overrides subscription auth and the lab

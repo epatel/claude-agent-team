@@ -13,8 +13,9 @@ architecture see `CLAUDE.md`; for the project status see `HANDOFF.md`.
   npm install -g @anthropic-ai/claude-code     # or your platform's install
   claude                                        # complete login (SSH: press `c`, paste code back)
   ```
-- A **GitHub token** for the lab (currently required by config; reserved for the
-  push step — see the note in `HANDOFF.md`).
+- **No other Claude credential** — auth is entirely the `claude` login above;
+  nothing Claude-related goes in `.env`. GitHub tokens are **per project**,
+  entered in the web console when adding a private repo (public repos need none).
 - **Do NOT export `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`** — they override
   subscription auth and the lab refuses to start.
 

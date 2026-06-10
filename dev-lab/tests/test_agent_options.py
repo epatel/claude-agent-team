@@ -52,6 +52,37 @@ def test_run_on_client_tool_reports_unknown_client_as_error(tmp_path):
     assert out["is_error"] is True
 
 
+def test_fetch_from_client_tool_writes_into_project_tree(tmp_path):
+    registry = ClientRegistry()
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    name = registry.register(name="mac", platform="darwin", capabilities=[], send=send)
+    handlers = _handlers(registry, tmp_path)
+
+    async def scenario():
+        call = asyncio.create_task(
+            handlers["fetch_from_client"]({"client": name, "paths": ["bin/hello"]})
+        )
+        await asyncio.sleep(0)
+        fid = sent[0]["task_id"]
+        import base64
+        await registry.handle_message(name, {
+            "type": "file", "task_id": fid, "path": "bin/hello",
+            "data": base64.b64encode(b"ELF...").decode(),
+        })
+        await registry.handle_message(name, {"type": "fetch_done", "task_id": fid})
+        return await call
+
+    out = asyncio.run(scenario())
+    summary = json.loads(out["content"][0]["text"])
+    assert summary["written"] == ["bin/hello"]
+    assert summary["errors"] == {}
+    assert (tmp_path / "bin" / "hello").read_bytes() == b"ELF..."
+
+
 def test_run_on_client_tool_returns_result_json(tmp_path):
     (tmp_path / "a.py").write_text("x")
     registry = ClientRegistry()

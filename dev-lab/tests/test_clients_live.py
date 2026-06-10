@@ -97,3 +97,20 @@ def test_full_round_trip_over_real_websocket(served_app, tmp_path):
     assert (mirror / "a.txt").read_text() == "ALPHA2"
     assert (mirror / "out2.txt").read_text() == "ALPHA2"
     assert not (mirror / "out.txt").exists()  # prior run's artifact cleaned up
+
+    # third run with preserve: out2.txt survives the sync this time
+    result3 = asyncio.run_coroutine_threadsafe(
+        registry.run("smoke", project_root=src, command="test -f out2.txt",
+                     preserve=["out2.txt"]),
+        server_loop,
+    ).result(timeout=30)
+    assert result3["ok"] is True
+    assert (mirror / "out2.txt").exists()
+
+    # and the artifact can be fetched back to the lab
+    fetched = asyncio.run_coroutine_threadsafe(
+        registry.fetch("smoke", project="project", paths=["out2.txt", "nope.txt"]),
+        server_loop,
+    ).result(timeout=30)
+    assert fetched["files"]["out2.txt"] == b"ALPHA2"
+    assert "nope.txt" in fetched["errors"]

@@ -46,6 +46,17 @@ sequenceDiagram
   warm between runs. Identity of "what ran" is the manifest hash, not a sha.
 - **Changed-files report** — the client snapshots its mirror manifest before a
   run and diffs after, so generated/modified files are visible per run.
+- **Preserving artifacts** — by default the sync deletes mirror files not in
+  the source tree (clean runs), which also wipes the previous run's build
+  output. `run_on_client` takes `preserve` glob patterns (fnmatch — `*`
+  crosses `/`) for artifacts/caches that should survive between runs
+  (incremental builds). Preserved files are excluded from the changed-report
+  unless the run actually touches them.
+- **Fetching artifacts back** — `fetch_from_client(client, paths)` pulls files
+  from the client's mirror into the lab's project working tree (so a built
+  binary or report lands where the agent — and the next commit — can see it;
+  .gitignore what shouldn't land in history). Oversized files (> the manifest
+  size cap) are refused per path.
 - **Shared scaffold** — `extensions/platform-client` (package
   `platform_client`) owns manifest sync, the runtime, and the
   `platform-client connect --lab <url>` CLI. A new client is configuration
