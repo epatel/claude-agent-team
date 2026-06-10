@@ -47,7 +47,7 @@ flowchart TB
   decision; see the index in CLAUDE.md). SDK session-resume for a single long
   task is still open (see the plan).
 - **Resource limits** — the Pi is small; mind memory/CPU for the agent process
-  and avoid heavy local builds (those go to extension clients).
+  and avoid heavy local builds (those go to platform clients).
 
 ## Extension-client hosts
 

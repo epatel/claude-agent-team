@@ -72,8 +72,10 @@ sequenceDiagram
 v1 (M4, superseded 2026-06-10): clients were FastMCP servers over HTTP+SSE the
 lab dialed via `EXTENSIONS=name=url`; code transport was a fresh git clone per
 call. Reversed because reachability, discovery, and mid-session testability all
-pushed the same way. `extensions/macos-build-test` is the old-model reference
-until it's ported.
+pushed the same way. The old model was **deleted 2026-06-10**
+(`extensions/macos-build-test`, the scaffold's `run_in_checkout`/`extension_cli`,
+and the lab's `EXTENSIONS` env + SSE wiring) — a new capability machine is just
+`platform-client connect --capability …`.
 
 ## Not covered here
 

@@ -1,7 +1,7 @@
 # claude-agent-team — per-component build tooling.
 # Each component gets its own venv (see cards/python-venvs.md).
 
-COMPONENTS := dev-lab chat-client extensions/platform-client extensions/macos-build-test
+COMPONENTS := dev-lab chat-client extensions/platform-client
 PY ?= python3
 
 .DEFAULT_GOAL := help
@@ -25,11 +25,9 @@ setup:
 			&& .venv/bin/python -m pip install --quiet --upgrade pip \
 			&& .venv/bin/python -m pip install -e ".[dev]" ) || exit 1; \
 	done
-	@# Platform clients build on the sibling scaffold; a pyproject can't express
-	@# a relative-path dep, so install it into each client's venv here. The lab
-	@# needs it too (manifest sync source side, dev_lab/clients.py).
-	@( cd extensions/macos-build-test \
-		&& .venv/bin/python -m pip install --quiet -e ../platform-client )
+	@# The lab shares the manifest-sync primitives with platform clients, and a
+	@# pyproject can't express a relative-path dep — install it into the lab's
+	@# venv here (dev_lab/clients.py imports platform_client.manifest).
 	@( cd dev-lab \
 		&& .venv/bin/python -m pip install --quiet -e ../extensions/platform-client )
 

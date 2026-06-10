@@ -63,8 +63,6 @@ async def run_once(
     extra: dict = {}
     if on_event is not None:
         extra["on_event"] = on_event
-    if config.extensions:
-        extra["extensions"] = config.extensions
     agent_result = await run_task(instruction, cwd=ws.path, model=config.model, **extra)
 
     commit_sha: str | None = None

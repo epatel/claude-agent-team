@@ -86,8 +86,6 @@ class LabSession:
         extra: dict = {}
         if on_event is not None:
             extra["on_event"] = on_event
-        if self.config.extensions:
-            extra["extensions"] = self.config.extensions
         if self._client_registry is not None:
             extra["client_registry"] = self._client_registry
 

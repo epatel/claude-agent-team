@@ -1,8 +1,9 @@
 # Quickstart
 
-How to run the three components — `dev-lab` (the lab), `chat-client`, and the
-`macos-build-test` extension — locally for testing and in production. For
-architecture see `CLAUDE.md`; for the project status see `HANDOFF.md`.
+How to run the lab locally and in production. The primary surface is the
+**web console** (`dev-lab web`); capability machines join as **platform
+clients** (`platform-client connect`). For architecture see `CLAUDE.md`; for
+status see `project-plan.md`.
 
 ## Prerequisites
 
@@ -24,201 +25,105 @@ architecture see `CLAUDE.md`; for the project status see `HANDOFF.md`.
 Each component has its own venv. From the repo root:
 
 ```sh
-make setup            # creates dev-lab/.venv, chat-client/.venv, extensions/macos-build-test/.venv
+make setup            # creates dev-lab/.venv, chat-client/.venv, extensions/platform-client/.venv
+make test             # unit tests — no network, no credits
 ```
 
-Entry points live at `<component>/.venv/bin/<name>`. The examples below call
-those paths directly; alternatively `source dev-lab/.venv/bin/activate` to use the
-bare `dev-lab` command.
+Entry points live at `<component>/.venv/bin/<name>`; alternatively
+`source dev-lab/.venv/bin/activate` to use the bare `dev-lab` command.
 
 ---
 
-## Web console (v2 — the main way to use it)
+## A. Local (one machine)
 
-A multi-project browser app: log in, pick a project, chat with its agent.
-
-```sh
-env -u ANTHROPIC_API_KEY \
-  dev-lab/.venv/bin/dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
-```
-
-Open `http://127.0.0.1:8770`, **register** an account, then:
-- **New project** → paste a git URL; it clones into `labs/<repo-name>` (the name
-  is derived from the URL; a second clone of the same repo gets a `_2` suffix).
-  For a **private** repo, paste a GitHub token in the same form (or set it later
-  via the project's token control); public repos need none. Or drop an existing
-  checkout into `labs/` and it auto-appears.
-- Pick a project on the left, chat on the right. Follow-ups continue the same
-  branch with the same agent context; assistant replies render as markdown +
-  mermaid; tool calls show as live activity.
-
-State (SQLite + cookie secret) lives under `~/labs/.dev-lab/`. Each project is its
-own clone/agent/branch. For LAN/remote access use `--host 0.0.0.0` **only on a
-trusted network** — auth exists but there's no TLS yet (put it behind a reverse
-proxy / Tailscale).
-
-The CLI surface below (`run` / `serve` / `submit` / `chat-client`) is the older
-single-project path, still functional.
-
-## A. Test / local (one machine)
-
-### A0. No credits — unit tests
+### A1. The web console
 
 ```sh
-make test             # 41 tests, no network, no credits
-make lint
+dev-lab/.venv/bin/dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
 ```
 
-### A1. One-shot, no chat client (simplest live run)
+Open `http://127.0.0.1:8770` and **register** — the **first user becomes the
+super-user** (no invite needed; everyone later needs an invite code minted in
+the ⚙ admin panel). Then:
 
-Spends subscription credits and needs `claude` logged in.
+- **+ new project** → paste a git URL to clone (token for private repos), **or**
+  leave the URL empty and give just a name to git-init a blank repo. Existing
+  checkouts dropped into `labs/` auto-appear.
+- Pick a project, chat with its agent on the **chat** tab. Follow-ups continue
+  the same `chat/<ts>` branch with the same resumed context; replies render as
+  markdown + mermaid; tool calls stream as live activity. Attach files for the
+  agent with the `+` button (or paste a screenshot).
+- The **repo** tab has the file browser (+ uploads into the tree, zip download)
+  and the git actions: fetch / pull / push / reset, rebase-on-base (conflicts
+  can be handed to the agent in chat), merge branch → base, remove project.
+
+State (SQLite + cookie secret) lives under `<labs>/.dev-lab/`. Each project is
+its own clone, agent context, and branch.
+
+### A2. A platform client (same or another machine)
+
+Platform clients provide capabilities the lab host lacks (build, test,
+platform tooling). They **dial the lab**:
 
 ```sh
-# a throwaway repo for the lab to work in
-REPO=$(mktemp -d); git -C "$REPO" init -q
-git -C "$REPO" config user.email lab@example.com; git -C "$REPO" config user.name "Dev Lab"
-echo "# demo" > "$REPO/README.md"; git -C "$REPO" add -A; git -C "$REPO" commit -q -m init
-
-env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
-  dev-lab/.venv/bin/dev-lab run "Create hello.txt with a greeting." --repo "$REPO"
-
-git -C "$REPO" log --oneline       # see the lab's commit on a lab/… branch
+extensions/platform-client/.venv/bin/platform-client connect \
+  --lab ws://127.0.0.1:8770/ws/client --name mac \
+  --capability run_tests --capability build
 ```
 
-### A2. Full stack — supervisor + chat client + extension
+The client appears in the console sidebar. In a project chat, ask the agent to
+e.g. "run `make test` on client mac" — it uses the `mcp__lab` tools
+(`list_clients` / `run_on_client` / `fetch_from_client`). The project's working
+tree (uncommitted changes included) is mirrored to the client via content-hash
+manifest sync; results and changed files come back; artifacts can be fetched
+into the lab tree. The file browser can browse/clean client mirrors per
+project. Mirrors live under `~/.platform-client/mirrors`.
 
-Three terminals (or background the servers).
+To gate the client endpoint, set `CLIENT_TOKEN=<secret>` in `dev-lab/.env` and
+pass `--token <secret>` (or the `CLIENT_TOKEN` env var) to the client.
 
-**Terminal 1 — extension MCP server (HTTP+SSE):**
+### A3. The CLI surface (older, single-project; still works)
+
 ```sh
-extensions/macos-build-test/.venv/bin/macos-build-test serve --port 8970
+dev-lab/.venv/bin/dev-lab run "Create hello.txt with a greeting." --repo <path>   # one-shot
+dev-lab/.venv/bin/dev-lab serve --repo <path> --host 127.0.0.1 --port 8765        # supervisor + WS
+chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 chat                   # interactive session
+dev-lab/.venv/bin/dev-lab submit "Add a CHANGELOG.md"                              # enqueue a job
 ```
 
-**Terminal 2 — the lab supervisor + WebSocket control surface:**
-```sh
-REPO=$(mktemp -d); git -C "$REPO" init -q
-git -C "$REPO" config user.email lab@example.com; git -C "$REPO" config user.name "Dev Lab"
-printf 'test:\n\t@echo "tests passed"\n' > "$REPO/Makefile"
-git -C "$REPO" add -A; git -C "$REPO" commit -q -m init
-
-env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
-  EXTENSIONS="macos=http://127.0.0.1:8970/sse" \
-  dev-lab/.venv/bin/dev-lab serve --repo "$REPO" --host 127.0.0.1 --port 8765 --poll 1
-```
-
-Queue and run-history default to `~/.dev-lab/` (outside the work repo, on
-purpose). Override with `--queue` / `--db` if you want them elsewhere — but never
-put them inside `--repo`, or the lab's own files make the tree look dirty and it
-will refuse to run.
-
-**Terminal 3 — chat client:**
-```sh
-# interactive session: type messages, watch activity; follow-ups continue the
-# same chat/<ts> branch with the same agent context
-chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 chat
-
-# or one fire-and-forget job, streamed to completion (own lab/<ts> branch)
-chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 \
-  submit "Run this project's tests against HEAD using the macos run_tests tool, and report the result."
-
-# or just watch the live event stream
-chat-client/.venv/bin/chat-client --url ws://127.0.0.1:8765 listen
-```
-
-You can also enqueue without a chat client (same default queue as `serve`):
-```sh
-dev-lab/.venv/bin/dev-lab submit "Add a CHANGELOG.md"
-```
-
-Where things land: jobs flow through `~/.dev-lab/queue/{pending,running,done,failed}`,
-run history is in `~/.dev-lab/lab.db` (SQLite), and the agent's commits are on
-`lab/…` branches in `$REPO`.
+Jobs flow through `~/.dev-lab/queue/{pending,running,done,failed}`; run history
+is in `~/.dev-lab/lab.db`. The `serve` WebSocket is unauthenticated — keep it
+loopback.
 
 ---
 
-## B. Production (Pi lab + macOS extension + GitHub)
+## B. Production (the Pi)
 
-### B1. The lab on the Raspberry Pi 5
-
-Do everything as **one Linux user** (subscription creds are user-scoped in
-`~/.claude`). Full steps are in `deploy/README.md`; the essentials:
-
-```sh
-# prerequisites (once)
-npm install -g @anthropic-ai/claude-code
-claude                                   # log in as this user
-
-# install the lab
-git clone <this repo> ~/claude-agent-team
-cd ~/claude-agent-team/dev-lab
-python3 -m venv .venv && .venv/bin/python -m pip install -e .
-cp .env.example .env                     # optional overrides (EXTENSIONS, see B3); GitHub auth is per project
-
-# the work repo the lab operates on
-git clone <target repo> ~/work/target-repo
-git -C ~/work/target-repo config user.name "Dev Lab"
-git -C ~/work/target-repo config user.email "lab@example.com"
-```
-
-Run it under systemd (restart-on-crash, start-on-boot):
+The reference deployment runs the web console on a Raspberry Pi 5 behind an
+Apache TLS reverse proxy under a path prefix (the SPA is prefix-aware). Full
+steps live in `deploy/README.md`; the shape:
 
 ```sh
-# edit deploy/dev-lab.service: User, paths, --repo, --queue, and add
-#   --host 0.0.0.0 --port 8765   and   --db <path>   to ExecStart
-sudo cp deploy/dev-lab.service /etc/systemd/system/dev-lab.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now dev-lab
-journalctl -u dev-lab -f
+# on the Pi, as one user (claude credentials are user-scoped):
+npm install -g @anthropic-ai/claude-code && claude     # one-time login
+# code at ~/dev-lab/claude-agent-team, venv per deploy/README.md, then:
+sudo cp deploy/dev-lab-web.service /etc/systemd/system/ && sudo systemctl enable --now dev-lab-web
+# Apache: include deploy/apache-dev-lab.conf inside the TLS vhost
 ```
 
-`EnvironmentFile=.env` supplies optional overrides (`EXTENSIONS`, `MODEL`); GitHub
-auth is per project (entered in the web console) and Claude auth is the `claude`
-login. **Never** put `ANTHROPIC_API_KEY` in that file.
+- `dev-lab web` binds **loopback only**; Apache terminates TLS and proxies
+  `/dev-lab/` (HTTP + both WebSocket endpoints) to it.
+- Platform clients connect from anywhere via
+  `wss://<host>/dev-lab/ws/client` with the shared `CLIENT_TOKEN`.
+- Register your account **immediately after first deploy** — the first
+  registration becomes the super-user without an invite.
 
-### B2. The extension on the macOS host
+## Caveats
 
-```sh
-git clone <this repo> ~/claude-agent-team
-cd ~/claude-agent-team/extensions/macos-build-test
-python3 -m venv .venv && .venv/bin/python -m pip install -e .
-
-# bind to the LAN/VPN address the Pi can reach
-.venv/bin/macos-build-test serve --host 0.0.0.0 --port 8970
-```
-
-Run it under launchd / a process supervisor for always-on. The endpoint is
-`http://<mac-host>:8970/sse`.
-
-### B3. Point the lab at the extension
-
-In `~/claude-agent-team/dev-lab/.env` on the Pi:
-
-```
-EXTENSIONS=macos=http://<mac-host>:8970/sse
-```
-
-Restart the service (`sudo systemctl restart dev-lab`). The agent now has the
-macOS `run_tests` / `build` tools.
-
-### B4. Drive it from a workstation
-
-```sh
-chat-client/.venv/bin/chat-client --url ws://<pi-host>:8765 submit "<instruction>"
-chat-client/.venv/bin/chat-client --url ws://<pi-host>:8765 listen
-```
-
----
-
-## Production caveats (read before relying on it)
-
-- **Unauthenticated surfaces.** The WebSocket control surface and the extension
-  SSE endpoint have **no auth** and are meant for loopback today. Only expose
-  them over a trusted network (LAN/Tailscale/VPN) until M5 adds auth. Don't bind
-  `0.0.0.0` on an untrusted network.
-- **No GitHub push yet.** The lab commits to its local clone but does not push to
-  GitHub, and the extension clones whatever repo path/URL the agent gives it. On
-  one host that's the lab's local repo path; cross-host build/test via GitHub is
-  not wired yet (see `HANDOFF.md`).
-- **Not yet validated on real Pi hardware** — M2 was verified locally only.
-- Live runs spend subscription credits (Agent SDK credit pool) and are
-  personal-use only under Anthropic's ToS.
+- Live agent turns spend subscription credits (separate Agent SDK pool,
+  personal-use only under Anthropic's ToS); typical turns run $0.10–0.40.
+- Session cookies are not yet marked `Secure` and the old CLI `serve` socket is
+  unauthenticated (M5 hardening) — keep the console behind TLS and the CLI
+  surface on loopback.
+- Manifest sync hashes the whole tree per task and caps files at 10 MB — fine
+  for small repos; revisit if trees grow.

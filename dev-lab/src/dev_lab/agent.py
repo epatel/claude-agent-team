@@ -166,7 +166,6 @@ def build_agent_options(
     model: str,
     max_turns: int = 40,
     effort: str = "high",
-    extensions: dict[str, str] | None = None,
     client_registry: ClientRegistry | None = None,
     resume: str | None = None,
 ) -> ClaudeAgentOptions:
@@ -174,16 +173,12 @@ def build_agent_options(
 
     ``client_registry`` (connected platform clients) becomes the in-process
     ``mcp__lab`` toolset (`list_clients` / `run_on_client`, bound to ``cwd`` as
-    the sync source). ``extensions`` is the legacy SSE wiring, kept while it
-    works. ``resume`` (a prior session id) continues that conversation instead
-    of starting fresh — used by interactive chat sessions so follow-ups keep
-    context.
+    the sync source). ``resume`` (a prior session id) continues that
+    conversation instead of starting fresh — used by interactive chat sessions
+    so follow-ups keep context.
     """
     allowed = list(DEFAULT_TOOLS)
     mcp_servers: dict[str, dict] = {}
-    for name, url in (extensions or {}).items():
-        mcp_servers[name] = {"type": "sse", "url": url}
-        allowed.append(f"mcp__{name}")  # allow all tools from this extension server
     if client_registry is not None:
         mcp_servers["lab"] = _clients_mcp_server(client_registry, Path(cwd))
         allowed.append("mcp__lab")
@@ -208,7 +203,6 @@ async def run_task(
     model: str,
     max_turns: int = 40,
     effort: str = "high",
-    extensions: dict[str, str] | None = None,
     client_registry: ClientRegistry | None = None,
     resume: str | None = None,
     on_event: Callable[[dict], Awaitable[None]] | None = None,
@@ -216,14 +210,14 @@ async def run_task(
     """Run the agent loop for one instruction in ``cwd``; return a result summary.
 
     Uses ``bypassPermissions`` so the unattended lab does not block on approval
-    prompts; the tool set and ``cwd`` bound what the agent can touch. ``extensions``
-    (name -> SSE URL) are attached as MCP tool servers. ``resume`` continues a prior
-    session. If ``on_event`` is given, assistant text streams as
-    ``{"type": "agent_message", ...}`` and tool calls as ``{"type": "tool_use", ...}``.
+    prompts; the tool set and ``cwd`` bound what the agent can touch. ``resume``
+    continues a prior session. If ``on_event`` is given, assistant text streams
+    as ``{"type": "agent_message", ...}`` and tool calls as
+    ``{"type": "tool_use", ...}``.
     """
     options = build_agent_options(
         cwd=cwd, model=model, max_turns=max_turns, effort=effort,
-        extensions=extensions, client_registry=client_registry, resume=resume,
+        client_registry=client_registry, resume=resume,
     )
 
     summary_parts: list[str] = []

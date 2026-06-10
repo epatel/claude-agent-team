@@ -25,10 +25,10 @@ commits that an extension client has built and tested."
 
 - [x] M0 — Repo + tooling skeleton: package layout, per-component venvs, lint/test, `.env` handling (owner: agent, status: done 2026-06-08)
 - [x] M1 — Minimal dev lab: Claude Agent SDK loop working in a local git clone; one instruction → one commit (owner: agent, status: done 2026-06-08, live-verified)
-- [x] M2 — Run uninterrupted on Pi 5: systemd service, restart-on-crash, durable job queue (owner: agent, status: done 2026-06-08; verified locally, not yet on real Pi hardware)
+- [x] M2 — Run uninterrupted on Pi 5: systemd service, restart-on-crash, durable job queue (owner: agent, status: done 2026-06-08; the web console runs on the real Pi since 2026-06-10 — see Current state)
 - [x] M3 — Chat client: control surface to send instructions, stream agent output (owner: agent, status: done 2026-06-08, live-verified)
 - [x] M4 — First extension client: macOS build/test MCP server; lab connects and uses it as tools (owner: agent, status: done 2026-06-08, live-verified end-to-end; superseded by M6's reversed-connection model)
-- [ ] M6 — Platform clients v1 (reversed connection): clients dial the lab over WebSocket, announce capabilities, maintain a manifest-synced mirror of a project tree, run commands there, report results + changed files; agent reaches them via lab-local SDK tools; console shows connected clients (owner: agent, status: in progress 2026-06-10)
+- [x] M6 — Platform clients v1 (reversed connection): clients dial the lab over WebSocket, announce capabilities, maintain a manifest-synced mirror of a project tree, run commands there, report results + changed files; agent reaches them via lab-local SDK tools; console shows connected clients (owner: agent, status: done 2026-06-10 — single-host live-verified, legacy model deleted; cross-machine verification tracked under M5)
 - [ ] M5 — Hardening: cross-component auth (console WS, client WS), reconnection, observability (owner: unassigned, status: not started)
 
 ## Decisions
@@ -148,20 +148,43 @@ agent autonomously called `list_clients` → `run_on_client` → `fetch_from_cli
 the artifact landed in the lab tree and was committed; wrong-token hello
 rejected with 1008; registry emptied on client kill). Cross-machine (Mac ↔ Pi)
 verification still open.
-`extensions/macos-build-test` still runs the old SSE model until ported.
+**Deployed on the real Pi (2026-06-10):** the web console runs at
+`https://home.memention.net/dev-lab/` — systemd unit `deploy/dev-lab-web.service`
+(loopback bind), Apache terminating TLS and proxying the `/dev-lab/` path
+prefix incl. both WebSocket endpoints (`deploy/apache-dev-lab.conf`); the SPA
+derives its path prefix from the page URL. `CLIENT_TOKEN` gates `/ws/client`.
 
-Next: **M6 live verification** (run `platform-client connect` from the macOS
-host against the lab, drive `run_on_client` from a chat), then **M5** —
-hardening: auth on the WebSocket surfaces, observability.
+**Console features (2026-06-10):** file browser grew source tabs for
+**client mirrors** (browse a connected client's mirror, fetch a file back,
+remove the mirror — wire frames `mirror`/`clean` next to `task`/`fetch` in
+`dev_lab/clients.py`); repo actions: fetch/pull/push, **reset** (discard
+uncommitted changes), **rebase-on-base** (replaces merge-base→branch; on
+conflict the UI offers to hand resolution to the agent in chat),
+**download zip**, **remove project** (deletes clone + history, cleans client
+mirrors); **uploads** — into the repo (auto-committed; a dirty tree would
+block the next session) and chat attachments via `.lab-uploads/` (excluded
+from commits via `.git/info/exclude` and from mirrors via manifest
+`DEFAULT_IGNORES`); **blank projects** (git-init by name, no remote);
+favicon. Versions: dev-lab 0.7.0, platform-client 0.3.0.
+
+**Legacy model deleted (2026-06-10):** `extensions/macos-build-test`, the
+scaffold's `run_in_checkout`/`extension_cli`, and the lab's `EXTENSIONS` env +
+SSE wiring are gone — a capability machine is now just
+`platform-client connect --capability …`.
+
+Next: **cross-machine verification** (a `platform-client connect` from the Mac
+against the Pi lab over `wss://…/dev-lab/ws/client`), then **M5** — hardening:
+`Secure` cookie flag, auth for the old CLI `serve` socket (or retire it),
+observability (health endpoint, structured logs, run history in the UI).
 
 ## Open questions
 
-- The WebSocket control surface is currently unauthenticated and loopback-bound — add auth (token / Tailscale / mTLS) before exposing it off-host (M5 hardening).
-- Network topology: clients now dial the lab, so only the **Pi** must be reachable — off-LAN clients need a route to it (port-forward vs Tailscale on the Pi).
+- The console WS is cookie-authed and `/ws/client` token-gated behind TLS; the old CLI `serve` socket is still unauthenticated/loopback — auth it or retire it with the CLI surface (M5).
+- Network topology: resolved for the reference deployment — the Pi is reachable via Apache TLS at home.memention.net; clients dial `wss://…/dev-lab/ws/client`.
 - Auth model across components (client → lab WS, chat → lab) — v1 has an optional shared `CLIENT_TOKEN`; mTLS / Tailscale ACLs are M5.
 - Manifest sync caps per-file size and hashes the whole tree per task — fine for small repos; revisit (mtime cache, chunked transfer) if trees grow.
 - Multiple chat clients share one working clone — only one session/job runs at a time (lab lock), and concurrent sessions on different branches aren't isolated. Multi-session concurrency would need git worktrees or per-session clones.
 - Whether to use the SDK's session resume (`resume`/`session_id`) so a single long task survives a mid-run crash — currently only the job queue is durable (a crashed job is requeued and re-run from scratch, on a fresh branch).
-- Secrets management on the Pi for the GitHub token (Claude auth is the one-time `claude` login stored in `~/.claude`, no secret in `.env`).
+- Secrets on the Pi: GitHub tokens are per project in SQLite (plaintext on the project row), `CLIENT_TOKEN` in a chmod-600 `.env` — fine for a single-owner box, revisit if that changes.
 - The systemd service must run as the user who ran `claude` login (credentials are user-scoped in `~/.claude`), or set `CLAUDE_CONFIG_DIR` to that user's config dir.
 - Confirm the Claude plan tier: Opus (`claude-opus-4-8`) needs a **Max** plan; subscription Agent SDK usage draws from a separate monthly credit pool (effective 2026-06-15) and is personal-use only under Anthropic's ToS.

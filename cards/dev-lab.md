@@ -9,8 +9,8 @@ The autonomous core: a Claude Agent SDK loop running uninterrupted on the Pi 5, 
 - Be the only component that authenticates to Anthropic, using the **Claude
   subscription** via a one-time `claude` login (not an API key; model
   `claude-opus-4-8`, adaptive thinking).
-- Connect outward to extension clients' MCP servers and expose them to the agent
-  as tools.
+- Accept dial-in platform clients (capability providers on other machines) and
+  expose them to the agent as the `mcp__lab` toolset.
 - Accept instructions from, and stream output to, the chat client via the
   control surface.
 
@@ -22,7 +22,7 @@ flowchart TB
     SUP[Supervisor process\nsystemd-managed] --> SESS[Agent session\nClaude Agent SDK]
     SESS --> TOOLS{Tools}
     TOOLS --> LOCAL[Local tools:\nfilesystem, git, shell]
-    TOOLS --> REMOTE[Remote MCP tools:\nbuild / test on extensions]
+    TOOLS --> REMOTE[mcp__lab tools:\nrun on platform clients]
     SESS --> CLONE[(Local git clone)]
 ```
 

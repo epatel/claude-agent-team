@@ -1,24 +1,32 @@
 # claude-agent-team
 
 An always-on autonomous development lab: a Claude Agent SDK client that runs
-uninterrupted on a Raspberry Pi 5, does real dev work on GitHub repos, is
+uninterrupted on a Raspberry Pi 5, does real dev work on git repos, is
 steered from a browser (per-project chat), and borrows capabilities it lacks
 (e.g. building and testing on macOS) from platform clients that dial in from
 other machines.
 
-- **Plan:** [`project-plan.md`](project-plan.md) — goal, milestones, decisions, open questions.
+- **Plan & status:** [`project-plan.md`](project-plan.md) — goal, milestones, decisions, current state.
 - **Architecture & docs:** [`CLAUDE.md`](CLAUDE.md) — orientation + a card index.
-- **Run it:** [`QUICKSTART.md`](QUICKSTART.md) — local/test and production setup.
-- **Status:** [`HANDOFF.md`](HANDOFF.md) — where things are and what's left.
+- **Run it:** [`QUICKSTART.md`](QUICKSTART.md) — local use and Pi deployment.
 
 ## Repository layout
 
 ```
-dev-lab/                      # the lab: agent loop + web console (runs on the Pi)
-chat-client/                  # CLI control surface (secondary to the web console)
+dev-lab/                      # the lab: web console + agent loop (runs on the Pi)
+  src/dev_lab/
+    web.py                    #   FastAPI console: login, projects, chat WS, client WS
+    projects.py               #   ProjectManager: clone/init, repo actions, uploads
+    clients.py                #   ClientRegistry + the client wire protocol (doc in module)
+    agent.py                  #   Claude Agent SDK loop + mcp__lab toolset
+    session.py / workspace.py #   chat branches / git wrapper
+    db.py / auth.py           #   SQLite migrations / users + invites
+    static/                   #   no-build vanilla JS frontend
+chat-client/                  # CLI control surface (older, single-project; secondary)
 extensions/
-  platform-client/            # platform-client runtime + manifest sync + shared scaffold
-  macos-build-test/           # first capability provider (being ported to the new model)
+  platform-client/            # platform-client runtime + manifest sync (pip-installable)
+deploy/                       # systemd units + Apache reverse-proxy config + Pi README
+cards/                        # Context Cards (see CLAUDE.md for the index)
 ```
 
 Each component is independently deployable with its **own venv** and its own
@@ -35,7 +43,17 @@ make lint     # ruff check
 make fmt      # ruff format
 ```
 
-Scope to one component by `cd`-ing into it and using its `.venv` directly.
+Run the web console and connect a capability machine:
+
+```sh
+dev-lab/.venv/bin/dev-lab web --labs-dir ~/labs --host 127.0.0.1 --port 8770
+# on the machine with the capability (build, test, …):
+platform-client connect --lab ws://<lab-host>:8770/ws/client --name mac \
+  --capability run_tests --capability build
+```
+
+See [`QUICKSTART.md`](QUICKSTART.md) for the full walkthrough and the
+production Pi setup (systemd + Apache TLS reverse proxy).
 
 ## Authentication — the `claude` CLI, no API key
 
@@ -63,11 +81,14 @@ Everything else is per-feature, not global:
 
 ## Status
 
-The lab is live: multi-project web console (login, per-project chat with a
-resumed agent session, repo actions, per-project model selection), durable
-SQLite runtime data, systemd deployment for the Pi. Platform clients (M6 v1)
-dial the lab over WebSocket, sync the working tree via content-hash manifests,
-run builds/tests in a warm mirror, and report results + changed files; the
-agent drives them through `list_clients` / `run_on_client` /
-`fetch_from_client`. See `project-plan.md` for milestones and `HANDOFF.md` for
-the current handoff.
+The lab is live (deployed on a Pi 5 behind Apache TLS). The web console covers
+multi-user login, projects (clone a URL or git-init a blank repo), per-project
+chat with a resumed agent session and per-project model selection, repo
+actions (fetch / pull / push / reset / rebase-on-base / merge / download-zip /
+remove project), a file browser that can also browse connected clients'
+mirrors, and uploads (into the repo, or as chat attachments for the agent to
+look at). Platform clients dial the lab over WebSocket, sync the working tree
+via content-hash manifests, run builds/tests in a warm mirror, and report
+results + changed files; the agent drives them through `mcp__lab`
+(`list_clients` / `run_on_client` / `fetch_from_client`). See
+`project-plan.md` for milestones and what's still open.

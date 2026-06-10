@@ -1,8 +1,8 @@
 """Thin git wrapper for the lab's local working clone (see cards/repo-sync.md).
 
 All operations shell out to ``git`` in the clone directory. Kept deliberately
-small: branch, inspect, and commit. Pushing to GitHub arrives in a later
-milestone.
+small: branch, inspect, commit, and the remote verbs (fetch/pull/push) the
+console's repo actions are built on.
 """
 
 from __future__ import annotations
