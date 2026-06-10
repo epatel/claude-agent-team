@@ -1,3 +1,5 @@
+<a href="https://claude.ai"><img src="made-with-claude.png" height="32" alt="Made with Claude"></a>
+
 # claude-agent-team
 
 An always-on autonomous development lab: a Claude Agent SDK client that runs
