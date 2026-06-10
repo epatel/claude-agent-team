@@ -226,8 +226,11 @@ function renderProjects() {
     const li = document.createElement("li");
     li.className = "project" + (p.id === state.activeId ? " active" : "");
     li.dataset.id = p.id;
+    // Supers see everyone's projects — label each with its owner ("shared"
+    // marks ownerless rows, e.g. checkouts dropped into labs/).
+    const owner = state.isSuper ? `<span class="owner-chip">${escapeHtml(p.owner || "shared")}</span>` : "";
     li.innerHTML =
-      `<span class="dot" data-status="idle"></span><span class="pname">${escapeHtml(p.name)}</span>` +
+      `<span class="dot" data-status="idle"></span><span class="pname">${escapeHtml(p.name)}</span>${owner}` +
       (p.branch ? `<span class="branch-chip">${escapeHtml(p.branch)}</span>` : "");
     li.addEventListener("click", () => openProject(p.id));
     ul.appendChild(li);

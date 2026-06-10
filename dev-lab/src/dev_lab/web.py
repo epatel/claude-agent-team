@@ -61,7 +61,10 @@ def _display_blob(path: str, data: bytes, *, max_bytes: int = 512 * 1024) -> dic
     }
 
 
-def _project_dict(pm: ProjectManager, row: sqlite3.Row) -> dict:
+def _project_dict(pm: ProjectManager, row: sqlite3.Row, conn: sqlite3.Connection) -> dict:
+    # Owner's username — shown to super-users (who see everyone's projects);
+    # for everyone else it is only ever their own name. None = ownerless row.
+    owner = auth.get_user(conn, row["owner_id"]) if row["owner_id"] else None
     return {
         "id": row["id"],
         "name": row["name"],
@@ -71,6 +74,7 @@ def _project_dict(pm: ProjectManager, row: sqlite3.Row) -> dict:
         "has_token": bool(row["github_token"]),
         # The model this project will run with (its override, else the lab default).
         "model": pm.effective_model(row),
+        "owner": owner["username"] if owner else None,
     }
 
 
@@ -321,7 +325,7 @@ def build_app(
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
         user = current_user(request)
-        return [_project_dict(pm, r) for r in pm.discover() if _can_access(user, r)]
+        return [_project_dict(pm, r, conn) for r in pm.discover() if _can_access(user, r)]
 
     @app.post("/api/projects")
     async def create_project(request: Request) -> dict:
@@ -344,7 +348,7 @@ def build_app(
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
-        return _project_dict(pm, row)
+        return _project_dict(pm, row, conn)
 
     @app.delete("/api/projects/{project_id}")
     async def remove_project(project_id: int, request: Request) -> dict:
@@ -714,7 +718,9 @@ def build_app(
                             )
                     elif msg.get("type") == "state":
                         projects = [
-                            _project_dict(pm, r) for r in pm.discover() if _can_access(user, r)
+                            _project_dict(pm, r, conn)
+                            for r in pm.discover()
+                            if _can_access(user, r)
                         ]
                         await websocket.send_text(
                             json.dumps({"type": "state", "projects": projects})

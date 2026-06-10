@@ -163,6 +163,11 @@ input:focus, textarea:focus {
 .project.active { background: var(--panel-2); border-color: var(--accent-dim); }
 .pname { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project .branch-chip { grid-column: 2; }
+/* Owner label on each project — rendered for super-users only. */
+.owner-chip {
+  grid-column: 2; font-family: var(--mono); font-size: 10px;
+  color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot[data-status="running"] { background: var(--run); box-shadow: 0 0 0 0 rgba(245,166,35,.6); animation: pulse 1.2s infinite; }
 .clients-box { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 8px; }

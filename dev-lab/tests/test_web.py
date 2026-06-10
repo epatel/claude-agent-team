@@ -443,10 +443,11 @@ def test_strict_project_isolation(tmp_path):
 
     pid = b.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
 
-    # each user sees only their own list; supers see everything
-    assert [p["name"] for p in b.get("/api/projects").json()] == ["myrepo"]
+    # each user sees only their own list; supers see everything, with owners
+    assert [(p["name"], p["owner"]) for p in b.get("/api/projects").json()] == [("myrepo", "b")]
     assert c.get("/api/projects").json() == []
-    assert "myrepo" in [p["name"] for p in a.get("/api/projects").json()]
+    super_list = {p["name"]: p["owner"] for p in a.get("/api/projects").json()}
+    assert super_list["myrepo"] == "b"
 
     # a foreign project is a 404 (existence hidden), for reads and actions alike
     assert c.get(f"/api/projects/{pid}/tree").status_code == 404
