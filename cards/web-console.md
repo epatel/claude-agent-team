@@ -58,6 +58,12 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   `.lab-uploads/` is excluded from commits via `.git/info/exclude` (local-only),
   from client mirrors via manifest `DEFAULT_IGNORES`, and survives **reset**
   (clean runs without `-x`). Both endpoints cap files at 25 MB.
+- **Removing a project.** *remove project* (repo tab's danger zone,
+  confirm-gated; `DELETE /api/projects/{id}`) deletes the lab's clone and chat
+  history and asks every **connected** client to clean its mirror of the
+  project (idempotent; per-client failures are reported, an offline client
+  keeps its mirror until cleaned another way). The remote repository is never
+  touched.
 - **Repair & download.** **reset** (`POST …/reset`, confirm-gated) discards all
   uncommitted changes and untracked files in the working tree (ignored files and
   commits survive) — the cleanup for a tree left dirty by a crashed run.

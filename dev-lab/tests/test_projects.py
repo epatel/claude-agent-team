@@ -188,6 +188,52 @@ def test_rebase_without_work_errors(tmp_path):
         asyncio.run(pm.rebase_onto_base(pid))
 
 
+class _FakeRegistry:
+    """Stand-in client registry: records clean() calls, one client fails."""
+
+    def __init__(self):
+        self.cleaned: list[tuple[str, str]] = []
+
+    def list(self):
+        return [
+            {"name": "mac", "platform": "darwin", "capabilities": []},
+            {"name": "broken", "platform": "linux", "capabilities": []},
+        ]
+
+    async def clean(self, name, *, project):
+        self.cleaned.append((name, project))
+        if name == "broken":
+            return {"ok": False, "error": "disk on fire"}
+        return {"ok": True, "error": None}
+
+
+def test_remove_deletes_clone_history_and_cleans_mirrors(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    conn = db.connect(tmp_path / "lab.db")
+    registry = _FakeRegistry()
+    pm = ProjectManager(
+        labs_dir=tmp_path / "labs", config=Config(), conn=conn, client_registry=registry
+    )
+    pid = pm.create(str(src))["id"]
+    db.record_message(conn, project_id=pid, role="user", content="hi")
+    clone = tmp_path / "labs" / "src"
+    assert clone.is_dir()
+
+    result = asyncio.run(pm.remove(pid))
+
+    assert result["name"] == "src"
+    assert result["mirrors_cleaned"] == ["mac"]
+    assert result["mirror_errors"] == {"broken": "disk on fire"}
+    # every connected client was asked to clean this project's mirror
+    assert set(registry.cleaned) == {("mac", "src"), ("broken", "src")}
+    assert not clone.exists()
+    assert db.get_project(conn, pid) is None
+    assert db.list_messages(conn, pid) == []
+    with pytest.raises(ProjectError, match="no such project"):
+        asyncio.run(pm.remove(pid))
+
+
 def test_upload_files_writes_commits_and_guards(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

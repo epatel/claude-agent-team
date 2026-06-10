@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import re
+import shutil
 import sqlite3
 import subprocess
 import uuid
@@ -21,6 +22,7 @@ from pathlib import Path, PurePosixPath
 
 from . import db
 from .agent import run_task as _run_task
+from .clients import ClientError
 from .config import KNOWN_MODEL_IDS, Config
 from .session import LabSession, RunTask, TurnResult
 from .workspace import Workspace, WorkspaceConflict, WorkspaceError
@@ -328,6 +330,45 @@ class ProjectManager:
                     "files": exc.files,
                 }
         return {"status": "ok", "base": base, "branch": branch, "commit": commit}
+
+    async def remove(self, project_id: int) -> dict:
+        """Remove a project from the lab — clone, chat history, client mirrors.
+
+        The remote repository is untouched; this only forgets the lab's copy.
+        Every *connected* platform client is asked to clean its mirror of the
+        project (idempotent — clients without one report ok); a client that is
+        offline right now keeps its mirror until it is cleaned another way.
+        The clone directory is deleted only if it really lives under labs_dir.
+        """
+        row = db.get_project(self.conn, project_id)
+        if row is None:
+            raise ProjectError(f"no such project: {project_id}")
+        path = Path(row["path"]).resolve()
+        async with self.lock(project_id):
+            self._sessions.pop(project_id, None)
+            mirrors_cleaned: list[str] = []
+            mirror_errors: dict[str, str] = {}
+            if self._client_registry is not None:
+                for c in self._client_registry.list():
+                    try:
+                        result = await self._client_registry.clean(c["name"], project=path.name)
+                    except ClientError as exc:
+                        mirror_errors[c["name"]] = str(exc)
+                        continue
+                    if result.get("ok"):
+                        mirrors_cleaned.append(c["name"])
+                    else:
+                        mirror_errors[c["name"]] = result.get("error") or "clean failed"
+            labs = self.labs_dir.resolve()
+            if path != labs and path.is_relative_to(labs) and path.is_dir():
+                await asyncio.to_thread(shutil.rmtree, path, ignore_errors=True)
+            db.delete_project(self.conn, project_id)
+        self._locks.pop(project_id, None)
+        return {
+            "name": row["name"],
+            "mirrors_cleaned": sorted(mirrors_cleaned),
+            "mirror_errors": mirror_errors,
+        }
 
     async def upload_files(
         self, project_id: int, files: list[tuple[str, bytes]], dest: str = ""

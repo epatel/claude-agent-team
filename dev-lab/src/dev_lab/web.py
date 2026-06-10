@@ -289,6 +289,19 @@ def build_app(
         await bus.publish({"type": "projects_changed"})
         return _project_dict(pm, row)
 
+    @app.delete("/api/projects/{project_id}")
+    async def remove_project(project_id: int, request: Request) -> dict:
+        """Remove the lab's copy of a project and clean client mirrors."""
+        current_user(request)
+        try:
+            result = await pm.remove(project_id)
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except WorkspaceError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        await bus.publish({"type": "projects_changed"})
+        return result
+
     @app.post("/api/projects/{project_id}/token")
     async def set_token(project_id: int, request: Request) -> dict:
         current_user(request)

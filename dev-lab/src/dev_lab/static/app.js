@@ -284,6 +284,7 @@ async function openProject(id) {
   $("#reset-btn").hidden = false;
   $("#rebase-btn").hidden = false;
   $("#merge-btn").hidden = false;
+  $("#remove-project-btn").hidden = false;
   $("#head-tabs").hidden = false;
   renderToken(p);
   renderModel(p);
@@ -541,6 +542,31 @@ $("#reset-btn").addEventListener("click", async () => {
       systemLine(`✓ reset working tree on ${r.branch} @ ${r.commit.slice(0, 10)}`);
     } catch (err) {
       systemLine(`✗ reset failed: ${err.message}`, true);
+    }
+  });
+});
+
+$("#remove-project-btn").addEventListener("click", async () => {
+  if (state.activeId == null) return;
+  const p = state.projects.find((x) => x.id === state.activeId);
+  const ok = await confirmDialog({
+    title: "remove project",
+    message: `Remove "${p ? p.name : "this project"}" from the lab? This deletes the local ` +
+      "clone and the chat history, and removes its mirror from connected clients. " +
+      "The remote repository is NOT touched. This cannot be undone.",
+    confirmText: "remove project",
+  });
+  if (!ok) return;
+  withButton($("#remove-project-btn"), "removing…", async () => {
+    try {
+      const r = await api(`/api/projects/${state.activeId}`, { method: "DELETE" });
+      const mirrors = r.mirrors_cleaned.length ? ` (mirrors cleaned: ${r.mirrors_cleaned.join(", ")})` : "";
+      const failed = Object.entries(r.mirror_errors || {})
+        .map(([c, why]) => `${c}: ${why}`).join("; ");
+      console.info(`removed ${r.name}${mirrors}${failed ? " — mirror errors: " + failed : ""}`);
+      location.reload();  // the active project is gone — restart from the project list
+    } catch (err) {
+      systemLine(`✗ remove project failed: ${err.message}`, true);
     }
   });
 });

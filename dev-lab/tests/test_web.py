@@ -429,6 +429,27 @@ def test_ws_requires_auth(tmp_path):
             pass
 
 
+def test_remove_project_endpoint(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    app, _conn = _app(tmp_path)
+    client = TestClient(app)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+    _fake_mirror_client(app, "myrepo", {"out.txt": b"x"})
+
+    r = client.delete(f"/api/projects/{pid}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "myrepo"
+    assert body["mirrors_cleaned"] == ["mac"]
+    assert client.get("/api/projects").json() == []
+    assert not (tmp_path / "labs" / "myrepo").exists()
+    assert client.delete(f"/api/projects/{pid}").status_code == 404
+
+    fresh, _ = _client(tmp_path / "fresh")
+    assert fresh.delete("/api/projects/1").status_code == 401
+
+
 def test_upload_endpoints(tmp_path):
     _src_repo(tmp_path / "myrepo")
     client, _ = _client(tmp_path)

@@ -295,6 +295,13 @@ def clear_messages(conn: sqlite3.Connection, project_id: int) -> int:
     return cur.rowcount
 
 
+def delete_project(conn: sqlite3.Connection, project_id: int) -> None:
+    """Delete a project row and its chat messages (run history is kept)."""
+    conn.execute("DELETE FROM messages WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    conn.commit()
+
+
 def clear_session(conn: sqlite3.Connection, project_id: int) -> None:
     """Forget a project's resumed SDK session so the next turn starts fresh.
 
