@@ -131,7 +131,19 @@ input:focus, textarea:focus {
 .who.is-super:hover { color: var(--accent); filter: none; }
 .who:active { transform: none; }
 .new-project { width: 100%; }
-.new-project-form { display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); padding: 12px; border-radius: 8px; border: 1px solid var(--line); }
+/* The new-project dialog: tab strip + a stacked form (modal-body provides
+   padding/scroll; panes swap per tab). */
+.np-tabs { display: flex; gap: 6px; padding: 12px 18px 0; }
+.np-tab {
+  padding: 4px 12px; font-size: 11px;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.np-tab.is-active { color: var(--text); border-color: var(--accent-dim); }
+.new-project-form { display: flex; flex-direction: column; gap: 8px; }
+.np-pane { display: flex; flex-direction: column; gap: 8px; }
+.np-pane[hidden] { display: none; }
+.np-hint { margin: 0; font-size: 11px; color: var(--muted); }
 .np-actions { display: flex; gap: 8px; }
 .np-actions button { flex: 1; }
 

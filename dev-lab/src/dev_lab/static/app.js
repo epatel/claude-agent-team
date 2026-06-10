@@ -233,15 +233,37 @@ function renderProjects() {
     ul.appendChild(li);
   }
 }
-$("#new-project-btn").addEventListener("click", () => {
-  $("#new-project-form").hidden = false;
-  $("#new-project-btn").hidden = true;
-});
-$("#np-cancel").addEventListener("click", () => {
-  $("#new-project-form").hidden = true;
-  $("#new-project-btn").hidden = false;
+/* New-project dialog: two tabs — clone a git URL, or git-init a blank repo. */
+let npMode = "clone";
+
+function setNpMode(mode) {
+  npMode = mode;
+  document.querySelectorAll(".np-tab").forEach((t) => {
+    const on = t.dataset.mode === mode;
+    t.classList.toggle("is-active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("#np-pane-clone").hidden = mode !== "clone";
+  $("#np-pane-blank").hidden = mode !== "blank";
+  $("#np-submit").textContent = mode === "clone" ? "clone" : "create";
   $("#np-error").textContent = "";
+  (mode === "clone" ? $("#np-url") : $("#np-name")).focus();
+}
+
+document.querySelectorAll(".np-tab").forEach((t) => {
+  t.addEventListener("click", () => setNpMode(t.dataset.mode));
 });
+
+$("#new-project-btn").addEventListener("click", () => {
+  $("#np-url").value = "";
+  $("#np-token").value = "";
+  $("#np-name").value = "";
+  $("#np-error").textContent = "";
+  fillModelSelect($("#np-model"), state.defaultModel);
+  $("#new-project-dialog").showModal();
+  setNpMode("clone");
+});
+
 // Keep the blank-repo name to characters the server accepts as it's typed.
 $("#np-name").addEventListener("input", (e) => {
   e.target.value = e.target.value.replace(/[^A-Za-z0-9._-]/g, "");
@@ -249,27 +271,27 @@ $("#np-name").addEventListener("input", (e) => {
 
 $("#new-project-form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const remote_url = $("#np-url").value.trim();
-  const name = $("#np-name").value.trim();
-  const github_token = $("#np-token").value.trim();
+  const clone = npMode === "clone";
+  const remote_url = clone ? $("#np-url").value.trim() : "";
+  const name = clone ? "" : $("#np-name").value.trim();
+  const github_token = clone ? $("#np-token").value.trim() : "";
   const model = $("#np-model").value;
   $("#np-error").textContent = "";
-  if (!remote_url && !name) {
-    $("#np-error").textContent = "give a git url to clone, or a name for a new repo";
+  if (clone && !remote_url) {
+    $("#np-error").textContent = "a git url is required";
     return;
   }
-  withButton($("#np-submit"), remote_url ? "cloning" : "creating", async () => {
+  if (!clone && !name) {
+    $("#np-error").textContent = "a repo name is required";
+    return;
+  }
+  withButton($("#np-submit"), clone ? "cloning" : "creating", async () => {
     try {
       await api("/api/projects", {
         method: "POST",
         body: JSON.stringify({ remote_url, name, github_token, model }),
       });
-      $("#np-url").value = "";
-      $("#np-token").value = "";
-      $("#np-name").value = "";
-      fillModelSelect($("#np-model"), state.defaultModel);
-      $("#new-project-form").hidden = true;
-      $("#new-project-btn").hidden = false;
+      $("#new-project-dialog").close();
       await loadProjects();
     } catch (err) {
       $("#np-error").textContent = err.message;

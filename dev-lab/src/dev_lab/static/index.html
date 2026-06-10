@@ -47,25 +47,7 @@
           title="You're signed in. Super-users see ★ and a ⚙ admin panel."></button>
       </div>
       <button id="new-project-btn" class="new-project"
-        title="Clone a git repo into the lab as a new project">+ new project</button>
-      <form id="new-project-form" class="new-project-form" hidden>
-        <input id="np-url" placeholder="git url"
-          title="HTTPS git URL of the repo to clone, e.g. https://github.com/owner/repo" />
-        <input id="np-token" type="password" autocomplete="off"
-          placeholder="github token"
-          title="Needed for private repos and for pushing. Public, read-only clones don't need one." />
-        <input id="np-name" placeholder="…or new repo name"
-          title="Leave the git url empty and give a name to start a brand-new empty repo (git init, no remote). Letters, digits, . _ - only." />
-        <select id="np-model" class="np-model"
-          title="Which Claude model this project's agent uses. You can change it per project later."></select>
-        <div class="np-actions">
-          <button type="submit" id="np-submit"
-            title="Clone the git URL — or, with only a name given, git-init a new empty repo">create</button>
-          <button type="button" id="np-cancel" class="ghost"
-            title="Discard this form without cloning">cancel</button>
-        </div>
-        <div id="np-error" class="error"></div>
-      </form>
+        title="Add a project: clone a git repo, or start a blank one">+ new project</button>
       <ul id="project-list" class="project-list"></ul>
       <div id="clients-box" class="clients-box" hidden
         title="Platform clients currently connected to the lab — machines that can run builds and tests for projects.">
@@ -223,6 +205,41 @@
       <div id="file-tree" class="file-tree"></div>
       <div id="file-content" class="file-content"></div>
     </div>
+  </dialog>
+
+  <!-- NEW PROJECT -->
+  <dialog id="new-project-dialog" class="modal modal-confirm">
+    <div class="modal-head">
+      <span class="modal-title">new project</span>
+      <button type="button" class="modal-close ghost" data-close="new-project-dialog">close</button>
+    </div>
+    <div class="np-tabs" role="tablist">
+      <button type="button" id="np-tab-clone" class="np-tab is-active" data-mode="clone" role="tab"
+        title="Clone an existing git repository into the lab">from git url</button>
+      <button type="button" id="np-tab-blank" class="np-tab" data-mode="blank" role="tab"
+        title="Start a brand-new empty repo (git init, no remote)">blank repo</button>
+    </div>
+    <form id="new-project-form" class="new-project-form modal-body">
+      <div id="np-pane-clone" class="np-pane">
+        <input id="np-url" placeholder="git url"
+          title="HTTPS git URL of the repo to clone, e.g. https://github.com/owner/repo" />
+        <input id="np-token" type="password" autocomplete="off"
+          placeholder="github token (private repos)"
+          title="Needed for private repos and for pushing. Public, read-only clones don't need one." />
+      </div>
+      <div id="np-pane-blank" class="np-pane" hidden>
+        <input id="np-name" placeholder="repo name"
+          title="Name for the new repo (letters, digits, . _ - only). It is git-inited under labs/ with a seed README and no remote." />
+        <p class="np-hint">creates an empty repo in the lab (git init, seed README, no remote)</p>
+      </div>
+      <select id="np-model" class="np-model"
+        title="Which Claude model this project's agent uses. You can change it per project later."></select>
+      <div class="np-actions">
+        <button type="submit" id="np-submit"
+          title="Add the project to the lab">clone</button>
+      </div>
+      <div id="np-error" class="error"></div>
+    </form>
   </dialog>
 
   <!-- CONFIRM (reusable; replaces window.confirm) -->
