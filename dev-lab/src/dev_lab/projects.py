@@ -775,14 +775,19 @@ class ProjectManager:
 
         The web equivalent of ``/clear``: wipes the persisted conversation,
         forgets the resumed SDK session, and drops the cached ``LabSession`` so
-        the next turn starts from a clean context. The branch and working tree
-        are left untouched — only the conversation is reset.
+        the next turn starts from a clean context. Chat attachments
+        (``.lab-uploads/``) go with the conversation they belonged to — they
+        are referenced by messages, never committed, and nothing else manages
+        their lifecycle. The branch and the rest of the working tree are left
+        untouched.
         """
-        if db.get_project(self.conn, project_id) is None:
+        row = db.get_project(self.conn, project_id)
+        if row is None:
             raise ProjectError(f"no such project: {project_id}")
         async with self.lock(project_id):
             db.clear_messages(self.conn, project_id)
             db.clear_session(self.conn, project_id)
+            shutil.rmtree(Path(row["path"]) / ".lab-uploads", ignore_errors=True)
             # Drop the cached session so open() rebuilds it from the now-reset
             # row (no last_session_id) instead of resuming the old context.
             self._sessions.pop(project_id, None)

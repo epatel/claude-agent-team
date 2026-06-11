@@ -327,6 +327,10 @@ def test_chat_uploads_stay_out_of_commits(tmp_path):
     for s in saved:
         assert (clone / s["path"]).exists()  # survives a working-tree reset
 
+    # …but dies with the conversation it belonged to
+    asyncio.run(pm.clear_chat(pid))
+    assert not (clone / ".lab-uploads").exists()
+
 
 def test_reset_working_tree_discards_uncommitted_changes(tmp_path):
     src = tmp_path / "src"

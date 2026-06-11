@@ -57,7 +57,10 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   chips, and the sent message lists the relative paths for the agent to read.
   `.lab-uploads/` is excluded from commits via `.git/info/exclude` (local-only),
   from client mirrors via manifest `DEFAULT_IGNORES`, and survives **reset**
-  (clean runs without `-x`). Both endpoints cap files at 25 MB.
+  (clean runs without `-x`). Attachments live as long as the conversation:
+  **clear chat** deletes `.lab-uploads/` along with the history (messages are
+  what reference the files, so they expire together). Both endpoints cap
+  files at 25 MB.
 - **Agent tab.** Per-project agent setup, stored on the project row
   (migration #9) and applied on the next turn (saving drops the cached
   session; the conversation resumes): a **project prompt** appended to the
