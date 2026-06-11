@@ -2,7 +2,14 @@
 # Each component gets its own venv (see cards/python-venvs.md).
 
 COMPONENTS := dev-lab chat-client extensions/platform-client
-PY ?= python3
+
+# Every component declares requires-python >= 3.11, but a stock Mac's plain
+# `python3` can be 3.9 — auto-pick the newest interpreter that qualifies.
+# `make setup PY=/path/to/python` still overrides.
+PY ?= $(shell for p in python3.14 python3.13 python3.12 python3.11 python3; do \
+	command -v $$p >/dev/null 2>&1 \
+	&& $$p -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null \
+	&& { echo $$p; break; }; done)
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +26,13 @@ help:
 	@echo "Components: $(COMPONENTS)"
 
 setup:
+	@test -n "$(PY)" || { echo "error: no Python >= 3.11 found on PATH."; \
+		echo "Install one (e.g. 'uv python install 3.12' or 'brew install python@3.12')"; \
+		echo "or run: make setup PY=/path/to/python3.12"; exit 1; }
+	@$(PY) -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null || { \
+		echo "error: $(PY) is $$($(PY) --version 2>&1) — the components need >= 3.11."; \
+		echo "Run: make setup PY=/path/to/python3.12"; exit 1; }
+	@echo "Using $(PY) ($$($(PY) --version))"
 	@for c in $(COMPONENTS); do \
 		echo "==> $$c"; \
 		( cd $$c && $(PY) -m venv .venv \
