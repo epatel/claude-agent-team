@@ -67,8 +67,11 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   `.claude/skills/<name>/SKILL.md` files in the repo: upload/drop a SKILL.md
   (the frontmatter `name:` field names it — no separate name input) and it is
   committed immediately, like uploads; rows show name + frontmatter
-  description; options carry `skills="all"` so the agent can use whatever is
-  committed. The chat input also takes drag-and-drop (whole chat panel is the
+  description; options carry `skills="all"` **with
+  `setting_sources=["project"]`** so the agent sees exactly the committed
+  project skills — without the pin the SDK defaults to user+project sources
+  and the lab service user's `~/.claude` (skills, settings) would leak into
+  every project's agent. The chat input also takes drag-and-drop (whole chat panel is the
   drop target) besides the `+` button and paste.
 - **Removing a project.** *remove project* (repo tab's danger zone,
   confirm-gated; `DELETE /api/projects/{id}`) deletes the lab's clone and chat

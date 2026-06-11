@@ -180,8 +180,11 @@ def build_agent_options(
     so follow-ups keep context. ``system_append`` is the project's own prompt
     (console agent tab), appended after the lab's standing instructions.
     ``extra_mcp_servers`` (name -> SDK config: stdio/sse/http) are the
-    project's MCP servers; all their tools are allowed. ``skills="all"``
-    enables any skill committed under the project's ``.claude/skills/``.
+    project's MCP servers; all their tools are allowed. ``skills="all"`` with
+    ``setting_sources=["project"]`` enables exactly the skills committed under
+    the project's ``.claude/skills/`` — without pinning the sources the SDK
+    defaults to ``["user", "project"]`` and the lab service user's
+    ``~/.claude`` (skills, settings) would leak into every project's agent.
     """
     allowed = list(DEFAULT_TOOLS)
     mcp_servers: dict[str, dict] = dict(extra_mcp_servers or {})
@@ -204,6 +207,7 @@ def build_agent_options(
         mcp_servers=mcp_servers,
         resume=resume,
         skills="all",
+        setting_sources=["project"],
     )
 
 

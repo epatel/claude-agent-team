@@ -29,6 +29,8 @@ def test_options_with_project_agent_config():
     assert opts.mcp_servers["docs"] == {"type": "http", "url": "https://x/mcp"}
     assert "mcp__docs" in opts.allowed_tools
     assert opts.skills == "all"  # project .claude/skills/ are usable
+    # pinned to project scope: the lab host's ~/.claude must not leak in
+    assert opts.setting_sources == ["project"]
 
 
 def _handlers(registry, root):
