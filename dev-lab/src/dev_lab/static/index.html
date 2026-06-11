@@ -4,6 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>the lab</title>
+  <!-- PWA identity: without an own manifest the browser falls back to the
+       origin's identity (which also hosts other apps) — relative paths keep
+       the /dev-lab/ prefix working. -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="application-name" content="the lab" />
+  <meta name="apple-mobile-web-app-title" content="the lab" />
+  <meta name="theme-color" content="#0c0d11" />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

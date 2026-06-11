@@ -1,0 +1,13 @@
+{
+  "name": "the lab",
+  "short_name": "the lab",
+  "description": "Autonomous dev lab — per-project Claude agents in the browser",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0c0d11",
+  "theme_color": "#0c0d11",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
