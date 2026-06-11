@@ -70,6 +70,25 @@ def _authed_url(url: str, token: str | None) -> str:
     return clean
 
 
+def _skill_frontmatter(content: str) -> tuple[str | None, str]:
+    """(name, description) from a SKILL.md YAML frontmatter block.
+
+    The skill's identity lives in its frontmatter ``name:`` (that is what the
+    agent sees), so an uploaded file names itself — no separate name field.
+    """
+    m = re.match(r"\s*---\s*\n(.*?)\n\s*---", content, re.DOTALL)
+    if not m:
+        return None, ""
+    name, description = None, ""
+    for line in m.group(1).splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "name":
+            name = value.strip().strip("\"'") or None
+        elif key.strip() == "description":
+            description = value.strip().strip("\"'")
+    return name, description
+
+
 def _parse_mcp_servers(raw: str | None) -> dict | None:
     """Parse a project's stored MCP-servers JSON; tolerate bad rows as None."""
     if not raw:
@@ -297,29 +316,36 @@ class ProjectManager:
     def _skills_dir(self, project_id: int) -> Path:
         return self._workspace(project_id).path / ".claude" / "skills"
 
-    async def list_skills(self, project_id: int) -> list[str]:
-        """Names of skills committed in the project tree (agent sees them all)."""
+    async def list_skills(self, project_id: int) -> list[dict]:
+        """Skills committed in the project tree: ``{name, description}`` rows."""
         skills_dir = self._skills_dir(project_id)
         if not skills_dir.is_dir():
             return []
-        return sorted(
-            child.name for child in skills_dir.iterdir()
-            if child.is_dir() and (child / "SKILL.md").is_file()
-        )
+        rows: list[dict] = []
+        for child in sorted(skills_dir.iterdir()):
+            skill_md = child / "SKILL.md"
+            if child.is_dir() and skill_md.is_file():
+                _, description = _skill_frontmatter(skill_md.read_text(errors="replace"))
+                rows.append({"name": child.name, "description": description})
+        return rows
 
-    async def add_skill(self, project_id: int, name: str, content: str) -> dict:
-        """Write ``.claude/skills/<name>/SKILL.md`` and commit it.
+    async def add_skill(self, project_id: int, content: str) -> dict:
+        """Install an uploaded SKILL.md: the frontmatter ``name:`` names it.
 
-        Committed straight away for the same reason uploads are: a dirty tree
-        blocks the next chat session. The agent picks the skill up on its next
-        turn (options carry ``skills="all"``).
+        Writes ``.claude/skills/<name>/SKILL.md`` and commits straight away for
+        the same reason uploads are: a dirty tree blocks the next chat session.
+        The agent picks the skill up on its next turn (``skills="all"``).
         """
-        if not _NAME_RE.match(name or ""):
+        name, _ = _skill_frontmatter(content)
+        if name is None:
             raise ProjectError(
-                "skill name must be letters/digits/._- (start with a letter or digit)"
+                'SKILL.md needs a frontmatter block with a "name:" field'
             )
-        if not content.strip():
-            raise ProjectError("skill content (SKILL.md markdown) is required")
+        if not _NAME_RE.match(name):
+            raise ProjectError(
+                f"skill name {name!r} must be letters/digits/._- "
+                "(start with a letter or digit)"
+            )
         ws = self._workspace(project_id)
         async with self.lock(project_id):
             ws.ensure_repo()

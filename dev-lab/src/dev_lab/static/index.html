@@ -88,6 +88,7 @@
       </header>
 
       <section id="panel-chat" class="tab-panel chat-panel" role="tabpanel" aria-labelledby="tab-chat">
+        <div id="chat-drop" class="drop-overlay" hidden aria-hidden="true">drop files to attach</div>
         <div id="transcript" class="transcript">
           <div class="empty" id="empty-state">select or clone a project to start talking</div>
         </div>
@@ -184,15 +185,15 @@
             <div class="agent-label"
               title="Skills live in the repo at .claude/skills/<name>/SKILL.md and are committed like code. The agent can use all of them.">skills</div>
             <ul id="skill-list" class="skill-list"></ul>
-            <input id="skill-name" placeholder="skill-name"
-              title="Directory name for the skill (letters, digits, . _ -)" />
-            <textarea id="skill-content" rows="7" class="agent-mono"
-              placeholder="---&#10;name: my-skill&#10;description: what it does and when the agent should use it&#10;---&#10;&#10;Instructions for the agent…"></textarea>
-            <div class="agent-actions">
-              <button id="skill-add" class="merge-btn ghost" type="button"
-                title="Write .claude/skills/<name>/SKILL.md and commit it">add skill</button>
-              <span id="skill-status" class="agent-status"></span>
+            <div id="skill-drop" class="drop-zone"
+              title="Each file needs a frontmatter block; its name: field becomes the skill name.">
+              drop SKILL.md files here, or
+              <button id="skill-upload-btn" class="ghost" type="button">choose files</button>
+              <input id="skill-input" type="file" multiple accept=".md,text/markdown" hidden />
             </div>
+            <p class="np-hint">the skill names itself via its frontmatter <code>name:</code> field;
+              installed to <code>.claude/skills/&lt;name&gt;/SKILL.md</code> and committed</p>
+            <span id="skill-status" class="agent-status"></span>
           </div>
         </div>
       </section>

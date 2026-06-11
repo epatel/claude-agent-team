@@ -64,9 +64,12 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   system prompt (Claude Code preset + lab rules + `## Project instructions`),
   **MCP servers** as JSON name → SDK config (validated at save; their
   `mcp__<name>` tools are allowed), and **skills** — managed as
-  `.claude/skills/<name>/SKILL.md` files in the repo (add/remove commits
-  immediately, like uploads; options carry `skills="all"` so the agent can
-  use whatever is committed).
+  `.claude/skills/<name>/SKILL.md` files in the repo: upload/drop a SKILL.md
+  (the frontmatter `name:` field names it — no separate name input) and it is
+  committed immediately, like uploads; rows show name + frontmatter
+  description; options carry `skills="all"` so the agent can use whatever is
+  committed. The chat input also takes drag-and-drop (whole chat panel is the
+  drop target) besides the `+` button and paste.
 - **Removing a project.** *remove project* (repo tab's danger zone,
   confirm-gated; `DELETE /api/projects/{id}`) deletes the lab's clone and chat
   history and asks every **connected** client to clean its mirror of the

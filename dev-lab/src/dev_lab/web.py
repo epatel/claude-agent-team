@@ -419,15 +419,30 @@ def build_app(
         return out
 
     @app.post("/api/projects/{project_id}/skills")
-    async def add_skill(project_id: int, request: Request) -> dict:
+    async def add_skills(
+        project_id: int,
+        request: Request,
+        files: Annotated[list[UploadFile], File()],
+    ) -> dict:
+        """Install uploaded SKILL.md files; each names itself via frontmatter."""
         _require_project(request, project_id)
-        data = await request.json()
-        try:
-            return await pm.add_skill(
-                project_id, (data.get("name") or "").strip(), data.get("content") or ""
-            )
-        except (ProjectError, WorkspaceError) as exc:
-            raise HTTPException(400, str(exc)) from exc
+        good, errors = await _read_uploads(files)
+        added: list[str] = []
+        commit = None
+        for fname, data in good:
+            try:
+                content = data.decode("utf-8")
+            except UnicodeDecodeError:
+                errors[fname] = "not a UTF-8 text file"
+                continue
+            try:
+                result = await pm.add_skill(project_id, content)
+            except (ProjectError, WorkspaceError) as exc:
+                errors[fname] = str(exc)
+                continue
+            added.append(result["name"])
+            commit = result["commit"] or commit
+        return {"added": added, "errors": errors, "commit": commit}
 
     @app.delete("/api/projects/{project_id}/skills/{name}")
     async def remove_skill(project_id: int, name: str, request: Request) -> dict:

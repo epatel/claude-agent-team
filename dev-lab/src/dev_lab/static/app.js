@@ -627,17 +627,23 @@ async function loadAgentPanel() {
   }
 }
 
-function renderSkills(names) {
+function renderSkills(skills) {
   const ul = $("#skill-list");
   ul.innerHTML = "";
-  if (!names.length) {
-    ul.innerHTML = '<li class="skill-empty">no skills yet — add one below</li>';
+  if (!skills.length) {
+    ul.innerHTML = '<li class="skill-empty">no skills yet — drop a SKILL.md below</li>';
     return;
   }
-  for (const name of names) {
+  for (const skill of skills) {
     const li = document.createElement("li");
-    li.className = "skill-item";
-    li.textContent = name + " ";
+    li.className = "skill-row";
+    const name = document.createElement("span");
+    name.className = "skill-name";
+    name.textContent = skill.name;
+    const desc = document.createElement("span");
+    desc.className = "skill-desc";
+    desc.textContent = skill.description || "";
+    desc.title = skill.description || "";
     const x = document.createElement("button");
     x.type = "button";
     x.className = "attach-remove";
@@ -646,18 +652,18 @@ function renderSkills(names) {
     x.addEventListener("click", async () => {
       const ok = await confirmDialog({
         title: "remove skill",
-        message: `Delete skill "${name}" (.claude/skills/${name}/) from the repo? The removal is committed.`,
+        message: `Delete skill "${skill.name}" (.claude/skills/${skill.name}/) from the repo? The removal is committed.`,
         confirmText: "remove skill",
       });
       if (!ok) return;
       try {
-        await api(`/api/projects/${state.activeId}/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+        await api(`/api/projects/${state.activeId}/skills/${encodeURIComponent(skill.name)}`, { method: "DELETE" });
         loadAgentPanel();
       } catch (err) {
         $("#skill-status").textContent = "failed: " + err.message;
       }
     });
-    li.appendChild(x);
+    li.append(name, desc, x);
     ul.appendChild(li);
   }
 }
@@ -688,27 +694,40 @@ $("#agent-mcp-save").addEventListener("click", () => {
     { mcp_servers: $("#agent-mcp").value }, "saving");
 });
 
-$("#skill-name").addEventListener("input", (e) => {
-  e.target.value = e.target.value.replace(/[^A-Za-z0-9._-]/g, "");
-});
+async function uploadSkills(files) {
+  if (state.activeId == null || !files.length) return;
+  $("#skill-status").textContent = "uploading…";
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f, f.name);
+  try {
+    const r = await api(`/api/projects/${state.activeId}/skills`, {
+      method: "POST", body: fd, headers: {},
+    });
+    const failed = Object.entries(r.errors || {}).map(([f, why]) => `${f}: ${why}`);
+    await loadAgentPanel();  // refresh rows first — it clears the status line
+    $("#skill-status").textContent =
+      (r.added.length ? `added ${r.added.join(", ")}${r.commit ? " @ " + r.commit.slice(0, 10) : ""}` : "") +
+      (failed.length ? `  ✗ ${failed.join("; ")}` : "");
+  } catch (err) {
+    $("#skill-status").textContent = "✗ " + err.message;
+  }
+}
 
-$("#skill-add").addEventListener("click", () => {
-  if (state.activeId == null) return;
-  withButton($("#skill-add"), "adding…", async () => {
-    $("#skill-status").textContent = "";
-    try {
-      const r = await api(`/api/projects/${state.activeId}/skills`, {
-        method: "POST",
-        body: JSON.stringify({ name: $("#skill-name").value.trim(), content: $("#skill-content").value }),
-      });
-      $("#skill-name").value = "";
-      $("#skill-content").value = "";
-      $("#skill-status").textContent = `added${r.commit ? " @ " + r.commit.slice(0, 10) : ""}`;
-      loadAgentPanel();
-    } catch (err) {
-      $("#skill-status").textContent = "✗ " + err.message;
-    }
-  });
+$("#skill-upload-btn").addEventListener("click", () => $("#skill-input").click());
+$("#skill-input").addEventListener("change", async (e) => {
+  await uploadSkills([...e.target.files]);
+  e.target.value = "";
+});
+const skillDrop = $("#skill-drop");
+skillDrop.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  skillDrop.classList.add("drop-active");
+});
+skillDrop.addEventListener("dragleave", () => skillDrop.classList.remove("drop-active"));
+skillDrop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  skillDrop.classList.remove("drop-active");
+  uploadSkills([...e.dataTransfer.files]);
 });
 
 $("#archive-btn").addEventListener("click", () => {
@@ -777,8 +796,10 @@ const attachments = [];
 
 function renderAttachChips() {
   const box = $("#attach-chips");
-  box.innerHTML = "";
-  box.hidden = attachments.length === 0;
+  // Rebuild the completed chips; in-flight (pending) ones own their lifecycle.
+  box.querySelectorAll(".attach-chip:not(.attach-pending)").forEach((el) => el.remove());
+  const firstPending = box.querySelector(".attach-pending");
+  box.hidden = attachments.length === 0 && firstPending === null;
   attachments.forEach((a, i) => {
     const chip = document.createElement("span");
     chip.className = "attach-chip";
@@ -790,26 +811,58 @@ function renderAttachChips() {
     x.title = "Remove this attachment from the next message (the uploaded file stays in .lab-uploads/)";
     x.addEventListener("click", () => { attachments.splice(i, 1); renderAttachChips(); });
     chip.appendChild(x);
+    box.insertBefore(chip, firstPending);
+  });
+}
+
+// One request per file so each pill can show its own upload progress
+// (fetch has no upload-progress events — this is XHR territory).
+function uploadOneAttachment(file, projectId) {
+  return new Promise((resolve) => {
+    const box = $("#attach-chips");
+    box.hidden = false;
+    const chip = document.createElement("span");
+    chip.className = "attach-chip attach-pending";
+    chip.textContent = `${file.name} · 0%`;
     box.appendChild(chip);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}/api/projects/${projectId}/chat-upload`);
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        chip.textContent = `${file.name} · ${Math.round((e.loaded / e.total) * 100)}%`;
+      }
+    });
+    xhr.addEventListener("loadend", () => {
+      chip.remove();
+      try {
+        const r = JSON.parse(xhr.responseText || "{}");
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // Only attach to the message if the user is still on this project.
+          if (state.activeId === projectId) attachments.push(...(r.saved || []));
+          for (const [name, why] of Object.entries(r.errors || {})) {
+            systemLine(`✗ attach ${name} failed: ${why}`, true);
+          }
+        } else {
+          systemLine(`✗ attach ${file.name} failed: ${r.detail || xhr.status}`, true);
+        }
+      } catch {
+        systemLine(`✗ attach ${file.name} failed`, true);
+      }
+      renderAttachChips();
+      resolve();
+    });
+
+    const fd = new FormData();
+    fd.append("files", file, file.name);
+    xhr.send(fd);
   });
 }
 
 async function uploadAttachments(fileList) {
   if (state.activeId == null || !fileList.length) return;
-  const fd = new FormData();
-  for (const f of fileList) fd.append("files", f, f.name);
-  try {
-    const r = await api(`/api/projects/${state.activeId}/chat-upload`, {
-      method: "POST", body: fd, headers: {},
-    });
-    attachments.push(...r.saved);
-    for (const [name, why] of Object.entries(r.errors || {})) {
-      systemLine(`✗ attach ${name} failed: ${why}`, true);
-    }
-  } catch (err) {
-    systemLine(`✗ attach failed: ${err.message}`, true);
-  }
-  renderAttachChips();
+  const pid = state.activeId;
+  await Promise.all([...fileList].map((f) => uploadOneAttachment(f, pid)));
 }
 
 $("#attach-btn").addEventListener("click", () => $("#attach-input").click());
@@ -824,6 +877,31 @@ textarea.addEventListener("paste", (e) => {
     e.preventDefault();
     uploadAttachments(files);
   }
+});
+
+// Dropping files anywhere on the chat panel attaches them too. A depth
+// counter keeps the overlay steady while dragging across child elements.
+const chatPanel = $("#panel-chat");
+let chatDragDepth = 0;
+chatPanel.addEventListener("dragenter", (e) => {
+  if (state.activeId == null || ![...e.dataTransfer.types].includes("Files")) return;
+  e.preventDefault();
+  chatDragDepth++;
+  $("#chat-drop").hidden = false;
+});
+chatPanel.addEventListener("dragover", (e) => e.preventDefault());
+chatPanel.addEventListener("dragleave", () => {
+  if (--chatDragDepth <= 0) {
+    chatDragDepth = 0;
+    $("#chat-drop").hidden = true;
+  }
+});
+chatPanel.addEventListener("drop", (e) => {
+  e.preventDefault();
+  chatDragDepth = 0;
+  $("#chat-drop").hidden = true;
+  const files = [...e.dataTransfer.files];
+  if (files.length) uploadAttachments(files);
 });
 
 $("#chat-form").addEventListener("submit", (e) => {

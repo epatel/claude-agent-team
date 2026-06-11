@@ -455,18 +455,29 @@ def test_agent_config_and_skills_endpoints(tmp_path):
     assert cfg["agent_prompt"] == "Prefer small commits."
     assert "https://x/mcp" in cfg["mcp_servers"]
 
-    # skills: add (commits), list, file lands in the tree, remove (commits)
-    r = client.post(f"/api/projects/{pid}/skills", json={
-        "name": "review", "content": "---\nname: review\n---\n\nReview hard.",
-    })
-    assert r.status_code == 200 and r.json()["commit"]
-    assert client.get(f"/api/projects/{pid}/agent").json()["skills"] == ["review"]
+    # skills: an uploaded SKILL.md names itself via frontmatter, is committed,
+    # listed as a row, lands in the tree, and can be removed (also committed)
+    skill_md = "---\nname: review\ndescription: review hard\n---\n\nReview hard."
+    r = client.post(
+        f"/api/projects/{pid}/skills",
+        files=[("files", ("whatever.md", skill_md.encode(), "text/markdown"))],
+    )
+    assert r.status_code == 200
+    assert r.json()["added"] == ["review"]  # from frontmatter, not the filename
+    assert r.json()["commit"]
+    assert client.get(f"/api/projects/{pid}/agent").json()["skills"] == [
+        {"name": "review", "description": "review hard"}
+    ]
     assert client.get(
         f"/api/projects/{pid}/file", params={"path": ".claude/skills/review/SKILL.md"}
     ).json()["content"].startswith("---")
-    assert client.post(
-        f"/api/projects/{pid}/skills", json={"name": "../bad", "content": "x"}
-    ).status_code == 400
+    # a file without a frontmatter name is a per-file error, not a 500
+    bad = client.post(
+        f"/api/projects/{pid}/skills",
+        files=[("files", ("noname.md", b"just text", "text/markdown"))],
+    ).json()
+    assert bad["added"] == []
+    assert "name" in bad["errors"]["noname.md"]
     assert client.delete(f"/api/projects/{pid}/skills/review").json()["commit"]
     assert client.get(f"/api/projects/{pid}/agent").json()["skills"] == []
     assert client.delete(f"/api/projects/{pid}/skills/review").status_code == 400
