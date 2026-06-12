@@ -235,7 +235,7 @@ function renderProjects() {
     // marks ownerless rows, e.g. checkouts dropped into labs/).
     const owner = state.isSuper ? `<span class="owner-chip">${escapeHtml(p.owner || "shared")}</span>` : "";
     li.innerHTML =
-      `<span class="dot" data-status="idle"></span><span class="pname">${escapeHtml(p.name)}</span>${owner}` +
+      `<span class="dot" data-status="${p.running ? "running" : "idle"}"></span><span class="pname">${escapeHtml(p.name)}</span>${owner}` +
       (p.branch ? `<span class="branch-chip">${escapeHtml(p.branch)}</span>` : "");
     li.addEventListener("click", () => openProject(p.id));
     ul.appendChild(li);
@@ -331,13 +331,12 @@ async function openProject(id) {
   renderToken(p);
   renderModel(p);
   setTab("chat");
-  const t = $("#transcript");
-  t.innerHTML = "";
-  setStatus("idle");
-  $("#stop-btn").hidden = true;
+  setStatus(p.running ? "running" : "idle");
+  $("#stop-btn").hidden = !p.running;
   loadBaseBranches(id);
-  const msgs = await api(`/api/projects/${id}/messages`);
-  for (const m of msgs) addMessage(m.role, m.content);
+  await loadTranscript(id);
+  // A turn is in flight: open a live bubble so the rest of the stream renders.
+  if (p.running) startAssistant();
   $("#chat-text").focus();
 }
 
@@ -999,6 +998,23 @@ function toolLabel(e) {
   return (e.name || "tool") + (hint ? "  " + String(hint).slice(0, 80) : "");
 }
 
+async function loadTranscript(id) {
+  const t = $("#transcript");
+  t.innerHTML = "";
+  const msgs = await api(`/api/projects/${id}/messages`);
+  for (const m of msgs) addMessage(m.role, m.content);
+}
+
+function commitChip(e) {
+  const c = document.createElement("button");
+  c.type = "button";
+  c.className = "commit-chip commit-link";
+  c.title = "view file diffs for this commit";
+  c.textContent = "✓ " + e.commit_sha.slice(0, 10) + "  view diff";
+  c.addEventListener("click", () => openDiff(e.project_id, e.commit_sha));
+  return c;
+}
+
 function startAssistant() {
   const t = $("#transcript");
   const div = document.createElement("div");
@@ -1019,6 +1035,11 @@ function startAssistant() {
 function handleEvent(e) {
   // sidebar status dots track every project
   if (e.project_id != null) {
+    const proj = state.projects.find((x) => x.id === e.project_id);
+    if (proj) {
+      if (e.type === "turn_running") proj.running = true;
+      if (["turn_done", "turn_failed", "turn_stopped"].includes(e.type)) proj.running = false;
+    }
     const dot = document.querySelector(`.project[data-id="${e.project_id}"] .dot`);
     if (dot) {
       if (e.type === "turn_running") dot.dataset.status = "running";
@@ -1038,6 +1059,7 @@ function handleEvent(e) {
       $("#stop-btn").hidden = false;
       break;
     case "tool_use":
+      if (!state.activity) startAssistant();
       if (state.activity) {
         const chip = document.createElement("span");
         chip.className = "tool-chip";
@@ -1047,21 +1069,29 @@ function handleEvent(e) {
       }
       break;
     case "agent_message":
+      if (!state.assistantBody) startAssistant();
       state.text += (e.text || "") + "\n\n";
       if (state.assistantBody) renderMarkdown(state.assistantBody, state.text);
       scrollBottom();
       break;
     case "turn_done": {
       const div = state.assistantBody && state.assistantBody.closest(".msg");
-      if (div) div.classList.remove("pending");
-      if (e.commit_sha && state.activity) {
-        const c = document.createElement("button");
-        c.type = "button";
-        c.className = "commit-chip commit-link";
-        c.title = "view file diffs for this commit";
-        c.textContent = "✓ " + e.commit_sha.slice(0, 10) + "  view diff";
-        c.addEventListener("click", () => openDiff(e.project_id, e.commit_sha));
-        state.activity.appendChild(c);
+      if (div && state.text) {
+        div.classList.remove("pending");
+        if (e.commit_sha && state.activity) state.activity.appendChild(commitChip(e));
+      } else {
+        // We weren't streaming into a live bubble (transcript was rebuilt
+        // mid-turn) — show the recorded reply, then the commit chip.
+        if (div) div.remove();
+        loadTranscript(e.project_id).then(() => {
+          if (e.commit_sha) {
+            const wrap = document.createElement("div");
+            wrap.className = "sys";
+            wrap.appendChild(commitChip(e));
+            $("#transcript").appendChild(wrap);
+          }
+          scrollBottom();
+        });
       }
       if (e.branch) {
         const p = state.projects.find((x) => x.id === e.project_id);

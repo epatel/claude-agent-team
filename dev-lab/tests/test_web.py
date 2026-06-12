@@ -180,6 +180,7 @@ def test_create_and_list_projects(tmp_path):
     src = str(tmp_path / "myrepo")
     r = client.post("/api/projects", json={"remote_url": src})
     assert r.status_code == 200 and r.json()["name"] == "myrepo"  # derived from the url
+    assert r.json()["running"] is False  # no turn in flight on a fresh project
     assert "myrepo" in [p["name"] for p in client.get("/api/projects").json()]
 
     # a second clone of the same repo gets a suffix

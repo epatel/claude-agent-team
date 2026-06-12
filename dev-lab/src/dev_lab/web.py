@@ -61,7 +61,9 @@ def _display_blob(path: str, data: bytes, *, max_bytes: int = 512 * 1024) -> dic
     }
 
 
-def _project_dict(pm: ProjectManager, row: sqlite3.Row, conn: sqlite3.Connection) -> dict:
+def _project_dict(
+    pm: ProjectManager, row: sqlite3.Row, conn: sqlite3.Connection, *, running: bool = False
+) -> dict:
     # Owner's username — shown to super-users (who see everyone's projects);
     # for everyone else it is only ever their own name. None = ownerless row.
     owner = auth.get_user(conn, row["owner_id"]) if row["owner_id"] else None
@@ -75,6 +77,9 @@ def _project_dict(pm: ProjectManager, row: sqlite3.Row, conn: sqlite3.Connection
         # The model this project will run with (its override, else the lab default).
         "model": pm.effective_model(row),
         "owner": owner["username"] if owner else None,
+        # Whether a turn is in flight right now — lets a (re)loaded console
+        # restore the running status/dot instead of guessing from events.
+        "running": running,
     }
 
 
@@ -162,6 +167,9 @@ def build_app(
     # The in-flight turn per project, so a console can stop it (turns within a
     # project serialize on the pm lock, so one task per project suffices).
     running_turns: dict[int, asyncio.Task] = {}
+
+    def project_dict(row: sqlite3.Row) -> dict:
+        return _project_dict(pm, row, conn, running=row["id"] in running_turns)
 
     def current_user(request: Request) -> sqlite3.Row:
         uid = request.session.get("user_id")
@@ -337,7 +345,7 @@ def build_app(
     @app.get("/api/projects")
     async def list_projects(request: Request) -> list[dict]:
         user = current_user(request)
-        return [_project_dict(pm, r, conn) for r in pm.discover() if _can_access(user, r)]
+        return [project_dict(r) for r in pm.discover() if _can_access(user, r)]
 
     @app.post("/api/projects")
     async def create_project(request: Request) -> dict:
@@ -360,7 +368,7 @@ def build_app(
         except ProjectError as exc:
             raise HTTPException(400, str(exc)) from exc
         await bus.publish({"type": "projects_changed"})
-        return _project_dict(pm, row, conn)
+        return project_dict(row)
 
     @app.delete("/api/projects/{project_id}")
     async def remove_project(project_id: int, request: Request) -> dict:
@@ -807,9 +815,7 @@ def build_app(
                                 task.cancel()
                     elif msg.get("type") == "state":
                         projects = [
-                            _project_dict(pm, r, conn)
-                            for r in pm.discover()
-                            if _can_access(user, r)
+                            project_dict(r) for r in pm.discover() if _can_access(user, r)
                         ]
                         await websocket.send_text(
                             json.dumps({"type": "state", "projects": projects})
