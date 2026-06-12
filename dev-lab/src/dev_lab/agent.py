@@ -7,7 +7,9 @@ commits, so the agent is told not to touch git.
 
 from __future__ import annotations
 
+import base64
 import json
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,7 +54,7 @@ class AgentResult:
     session_id: str | None = None
 
 
-def _client_tools(registry: ClientRegistry, project_root: Path) -> list:
+def _client_tools(registry: ClientRegistry, project_root: Path, on_event=None) -> list:
     """Lab-local SDK tools that route to connected platform clients.
 
     This is the agent-facing side of the reversed-connection model
@@ -208,7 +210,19 @@ def _client_tools(registry: ClientRegistry, project_root: Path) -> list:
             return {"content": [{"type": "text", "text": f"error: {exc}"}], "is_error": True}
         # MCP content blocks (text, image, ...) are exactly what SDK tools
         # return — forward them so screenshots arrive as images.
-        content = result.get("content") or [{"type": "text", "text": "(no content)"}]
+        content = list(result.get("content") or [{"type": "text", "text": "(no content)"}])
+        saved = _save_mcp_images(
+            project_root, str(args["server"]), str(args["tool"]), content
+        )
+        for path in saved:
+            if on_event is not None:
+                # render it inline in the console transcript right away
+                await on_event({"type": "tool_image", "path": path})
+            content.append({
+                "type": "text",
+                "text": f"(image saved to {path} — embed it in your reply as "
+                        f"![...]({path}) to show the user)",
+            })
         return {"content": content, "is_error": bool(result.get("isError"))}
 
     return [
@@ -217,8 +231,47 @@ def _client_tools(registry: ClientRegistry, project_root: Path) -> list:
     ]
 
 
-def _clients_mcp_server(registry: ClientRegistry, project_root: Path):
-    return create_sdk_mcp_server("lab", tools=_client_tools(registry, project_root))
+_IMAGE_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+
+
+def _save_mcp_images(project_root: Path, server: str, tool: str, content: list) -> list[str]:
+    """Persist image blocks from a tunneled MCP result into ``.lab-uploads/``.
+
+    Same scratch space as chat attachments (kept out of commits via
+    ``.git/info/exclude``, out of mirrors via DEFAULT_IGNORES, deleted with the
+    conversation) — so a screenshot the agent took is viewable in the console
+    and the file browser instead of existing only inside the tool result.
+    Returns the repo-relative paths written.
+    """
+    images = [
+        b for b in content
+        if isinstance(b, dict) and b.get("type") == "image" and b.get("data")
+    ]
+    if not images:
+        return []
+    exclude = project_root / ".git" / "info" / "exclude"
+    if exclude.parent.is_dir():
+        current = exclude.read_text() if exclude.exists() else ""
+        if "/.lab-uploads/" not in current:
+            exclude.write_text(current.rstrip("\n") + "\n/.lab-uploads/\n")
+    updir = project_root / ".lab-uploads"
+    updir.mkdir(exist_ok=True)
+    saved: list[str] = []
+    for block in images:
+        ext = _IMAGE_EXT.get(str(block.get("mimeType")), "png")
+        name = f"{uuid.uuid4().hex[:8]}-{server}-{tool}.{ext}"
+        try:
+            (updir / name).write_bytes(base64.b64decode(block["data"]))
+        except (ValueError, OSError):
+            continue
+        saved.append(f".lab-uploads/{name}")
+    return saved
+
+
+def _clients_mcp_server(registry: ClientRegistry, project_root: Path, on_event=None):
+    return create_sdk_mcp_server(
+        "lab", tools=_client_tools(registry, project_root, on_event=on_event)
+    )
 
 
 def build_agent_options(
@@ -231,6 +284,7 @@ def build_agent_options(
     resume: str | None = None,
     system_append: str | None = None,
     extra_mcp_servers: dict[str, dict] | None = None,
+    on_event: Callable[[dict], Awaitable[None]] | None = None,
 ) -> ClaudeAgentOptions:
     """Build the SDK options, wiring remote capabilities as MCP tools.
 
@@ -251,7 +305,9 @@ def build_agent_options(
     mcp_servers: dict[str, dict] = dict(extra_mcp_servers or {})
     allowed += [f"mcp__{name}" for name in mcp_servers]
     if client_registry is not None:
-        mcp_servers["lab"] = _clients_mcp_server(client_registry, Path(cwd))
+        mcp_servers["lab"] = _clients_mcp_server(
+            client_registry, Path(cwd), on_event=on_event
+        )
         allowed.append("mcp__lab")
     append = _SYSTEM_APPEND
     if system_append and system_append.strip():
@@ -297,6 +353,7 @@ async def run_task(
         cwd=cwd, model=model, max_turns=max_turns, effort=effort,
         client_registry=client_registry, resume=resume,
         system_append=system_append, extra_mcp_servers=extra_mcp_servers,
+        on_event=on_event,
     )
 
     summary_parts: list[str] = []

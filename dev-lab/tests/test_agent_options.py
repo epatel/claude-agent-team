@@ -33,8 +33,8 @@ def test_options_with_project_agent_config():
     assert opts.setting_sources == ["project"]
 
 
-def _handlers(registry, root):
-    return {t.name: t.handler for t in _client_tools(registry, root)}
+def _handlers(registry, root, on_event=None):
+    return {t.name: t.handler for t in _client_tools(registry, root, on_event=on_event)}
 
 
 def test_list_clients_tool_returns_registry_contents(tmp_path):
@@ -91,17 +91,23 @@ def test_fetch_from_client_tool_writes_into_project_tree(tmp_path):
 
 
 def test_call_client_mcp_tool_forwards_content_blocks(tmp_path):
+    # a project-ish root: .git/info present so the exclude entry can be written
+    (tmp_path / ".git" / "info").mkdir(parents=True)
     registry = ClientRegistry()
     sent = []
+    events = []
 
     async def send(message):
         sent.append(message)
+
+    async def on_event(event):
+        events.append(event)
 
     name = registry.register(
         name="mac", platform="darwin", capabilities=[], send=send,
         mcp_servers=["browser"],
     )
-    handlers = _handlers(registry, tmp_path)
+    handlers = _handlers(registry, tmp_path, on_event=on_event)
 
     async def scenario():
         call = asyncio.create_task(handlers["call_client_mcp_tool"]({
@@ -122,6 +128,17 @@ def test_call_client_mcp_tool_forwards_content_blocks(tmp_path):
     # image blocks pass through untouched so the agent can SEE the screenshot
     assert out["content"][0] == {"type": "image", "data": "aWJtZw==", "mimeType": "image/png"}
     assert out["is_error"] is False
+
+    # the image is ALSO saved into .lab-uploads/ (kept out of commits), the
+    # console is told to render it, and the agent gets the path to embed
+    saved = list((tmp_path / ".lab-uploads").glob("*-browser-screenshot.png"))
+    assert len(saved) == 1
+    assert saved[0].read_bytes() == b"ibmg"
+    assert "/.lab-uploads/" in (tmp_path / ".git" / "info" / "exclude").read_text()
+    assert events == [{"type": "tool_image", "path": f".lab-uploads/{saved[0].name}"}]
+    hint = out["content"][-1]
+    assert hint["type"] == "text" and ".lab-uploads/" in hint["text"]
+
     # unknown server surfaces as a readable tool error
     err = asyncio.run(handlers["list_client_mcp_tools"]({"client": name, "server": "x"}))
     assert err["is_error"] is True

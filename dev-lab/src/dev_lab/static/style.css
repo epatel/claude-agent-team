@@ -649,6 +649,11 @@ button.mini.danger:hover { border-color: var(--bad); color: var(--bad); }
 
 .files-back { display: none; }
 
+.tool-img {
+  display: block; max-width: min(480px, 100%); margin: 6px 0;
+  border: 1px solid var(--line); border-radius: 8px;
+}
+
 /* ---------- MOBILE (separate screens: project list <-> project view) ---------
    Below 700px the two-pane layout becomes a screen flow: the sidebar is the
    "projects" screen; opening a project slides to the project screen with a

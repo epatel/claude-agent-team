@@ -54,6 +54,14 @@ with `call_client_mcp_tool(client, server, tool, arguments)`.
   are serialized through its bridge queue.
 - **Only `tools/list` and `tools/call` are tunneled** (v1) — no resources,
   prompts, or notifications. The lab-side timeout is 120s per call.
+- **Images reach the user, not just the agent.** Image blocks in a result
+  (screenshots) are auto-saved into the project's `.lab-uploads/` (chat
+  scratch: out of commits/mirrors, deleted on clear chat), rendered inline in
+  the console transcript via a `tool_image` event, and the agent is handed
+  the path with a hint to embed it (`![…](.lab-uploads/…)`) so it survives a
+  reload. Note: Playwright MCP must be allowed to *return* images
+  (`--image-responses=allow` if your version defaults them off) — a
+  text-only "saved to <client path>" result can't be rescued lab-side.
 - **Trust model unchanged** — `CLIENT_TOKEN` gates who may connect; the client
   owner chooses which servers to offer. Like capabilities, the announced
   names are advisory; the lab refuses calls to *unannounced* names but does

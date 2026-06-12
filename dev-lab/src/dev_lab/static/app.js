@@ -1101,6 +1101,18 @@ function handleEvent(e) {
         scrollBottom();
       }
       break;
+    case "tool_image": {
+      // an image produced by a client-side MCP tool (e.g. a browser
+      // screenshot), already saved into the project's .lab-uploads/
+      if (!state.activity) startAssistant();
+      const img = document.createElement("img");
+      img.className = "tool-img";
+      img.alt = e.path;
+      img.src = `${BASE}/api/projects/${e.project_id}/raw?path=${encodeURIComponent(e.path)}`;
+      state.activity.appendChild(img);
+      scrollBottom();
+      break;
+    }
     case "agent_message":
       if (!state.assistantBody) startAssistant();
       state.text += (e.text || "") + "\n\n";
