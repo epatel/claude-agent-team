@@ -257,6 +257,77 @@ def test_lab_id_namespaces_mirrors_per_lab(tmp_path):
     assert (tmp_path / "mirrors" / "proj").is_dir()
 
 
+class _FakeBridge:
+    def __init__(self, result=None, error=None):
+        self.result, self.error, self.calls = result, error, []
+
+    async def request(self, method, params):
+        self.calls.append((method, params))
+        if self.error:
+            raise RuntimeError(self.error)
+        return self.result
+
+
+def test_mcp_frames_route_to_the_named_bridge(tmp_path):
+    runtime = _runtime(tmp_path)
+    bridge = _FakeBridge(result={"tools": [{"name": "echo"}]})
+    runtime._mcp = {"browser": bridge}
+
+    frames = [
+        {"type": "mcp", "task_id": "m1", "server": "browser",
+         "method": "tools/list", "params": {}},
+        {"type": "mcp", "task_id": "m2", "server": "nope",
+         "method": "tools/list", "params": {}},
+    ]
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, *frames])
+
+    async def scenario():
+        await runtime.handle(conn)
+        # mcp handling is fire-and-forget — let the tasks drain
+        await asyncio.sleep(0.05)
+
+    asyncio.run(scenario())
+    results = {m["task_id"]: m for m in conn.sent if m.get("type") == "mcp_result"}
+    assert results["m1"]["ok"] is True
+    assert results["m1"]["result"] == {"tools": [{"name": "echo"}]}
+    assert results["m2"]["ok"] is False
+    assert "no mcp server" in results["m2"]["error"]
+    assert bridge.calls == [("tools/list", {})]
+
+
+def test_hello_announces_mcp_servers(tmp_path):
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}])
+    runtime = ClientRuntime(
+        name="mac", capabilities=[], mirrors_root=tmp_path,
+        mcp_servers={"browser": "some-command"},
+    )
+    asyncio.run(runtime.handle(conn))
+    assert conn.sent[0]["mcp_servers"] == ["browser"]
+
+
+def test_mcp_bridge_against_a_real_stdio_server(tmp_path):
+    """End-to-end: spawn a real FastMCP subprocess and tunnel through it."""
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    from platform_client.runtime import MCPBridge
+
+    script = _Path(__file__).parent / "mcp_echo_server.py"
+    bridge = MCPBridge("echo", f"{_sys.executable} {script}")
+
+    async def scenario():
+        tools = await asyncio.wait_for(bridge.request("tools/list", {}), 30)
+        called = await asyncio.wait_for(
+            bridge.request("tools/call", {"name": "echo", "arguments": {"text": "hi"}}), 30
+        )
+        return tools, called
+
+    tools, called = asyncio.run(scenario())
+    assert [t["name"] for t in tools["tools"]] == ["echo"]
+    assert called["content"][0]["text"] == "echo: hi"
+    assert not called.get("isError")
+
+
 def test_project_name_cannot_traverse_mirrors_root(tmp_path):
     task = {"type": "task", "task_id": "t1", "project": "../../evil",
             "command": "true", "manifest": {}}

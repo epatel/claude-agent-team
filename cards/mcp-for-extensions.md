@@ -37,8 +37,18 @@ connection from NAT-ed machines** — so the custom protocol now earns its keep.
 - **Job queue (Redis/NATS)** — still rejected for v1: adds a broker; the
   WS dispatch covers current fan-out needs.
 
+## Amendment (2026-06-12): real MCP servers ON clients, tunneled
+
+Clients can now run **actual stdio MCP servers** (e.g. Playwright's browser
+MCP) and the lab forwards `tools/list`/`tools/call` to them inside the
+lab-owned wire (`mcp`/`mcp_result` frames) — see cards/client-mcp-servers.md.
+This is not a reversal of this decision but its completion: MCP remains the
+tool contract at *both* ends (agent tools on the lab, an MCP session on the
+client), while the lab-owned WebSocket keeps providing what raw MCP transport
+couldn't — presence, announcement, and the inbound-only connection.
+
 ## Revisit if
 
 - MCP standardizes a server-initiated / reverse-connection transport — the
-  client wire could become MCP again.
+  tunnel frames could become a pass-through of that instead.
 - We need durable offline job dispatch (queue behind the same SDK tools).

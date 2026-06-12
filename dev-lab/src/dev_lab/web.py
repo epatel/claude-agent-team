@@ -851,6 +851,7 @@ def build_app(
             platform=str(hello.get("platform") or "unknown"),
             capabilities=list(hello.get("capabilities") or []),
             send=send,
+            mcp_servers=[str(s) for s in (hello.get("mcp_servers") or [])],
         )
         await send({"type": "hello_ok", "name": name, "lab": app.state.lab_id})
         await bus.publish({"type": "clients_changed"})

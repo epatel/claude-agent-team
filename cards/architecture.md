@@ -58,7 +58,9 @@ flowchart LR
    (`list_clients` / `run_on_client` / `fetch_from_client`); the registry
    dispatches over the client's WebSocket; the client syncs the mirror, runs
    the command, reports result + changed files; artifacts can be fetched back
-   into the lab tree.
+   into the lab tree. Clients can also offer **tunneled MCP servers** (e.g. a
+   real browser) the agent calls through the same socket
+   (cards/client-mcp-servers.md).
 3. **Code flow** — the lab works in the project's local clone on `chat/<ts>`
    branches; landing work is merge/rebase + push to the remote. Platform
    clients never touch the remote — they receive the exact working tree

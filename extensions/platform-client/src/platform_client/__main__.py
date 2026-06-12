@@ -34,15 +34,27 @@ def main(argv: list[str] | None = None) -> int:
         "--capability", action="append", dest="capabilities", metavar="NAME",
         help="a capability to announce (repeatable); default: run",
     )
+    c.add_argument(
+        "--mcp", action="append", dest="mcp", metavar="NAME=COMMAND",
+        help="a local stdio MCP server the lab's agents may call through this "
+             "client (repeatable), e.g. --mcp browser=\"npx @playwright/mcp@latest\"",
+    )
     c.add_argument("--once", action="store_true", help="exit when the connection closes")
     args = parser.parse_args(argv)
 
     if args.command == "connect":
+        mcp_servers: dict[str, str] = {}
+        for entry in args.mcp or []:
+            name, sep, command = entry.partition("=")
+            if not sep or not name.strip() or not command.strip():
+                parser.error(f"bad --mcp entry (want NAME=COMMAND): {entry!r}")
+            mcp_servers[name.strip()] = command.strip()
         runtime = ClientRuntime(
             name=args.name,
             capabilities=[{"name": n} for n in (args.capabilities or ["run"])],
             mirrors_root=args.mirrors,
             token=args.token,
+            mcp_servers=mcp_servers,
         )
         run = connect_once(args.lab, runtime) if args.once else connect_forever(args.lab, runtime)
         try:

@@ -35,6 +35,70 @@ class ProtocolError(RuntimeError):
     pass
 
 
+class MCPBridge:
+    """One local stdio MCP server, serving requests tunneled from the lab.
+
+    The subprocess (e.g. ``npx @playwright/mcp``) is spawned lazily on the
+    first request and lives until the runtime exits — so server-side state
+    (a loaded browser page, a session) persists across tool calls. Requests
+    are serialized through a queue; a dead server fails fast rather than
+    hanging callers. No auto-restart: restart the platform client to recover.
+    """
+
+    def __init__(self, name: str, command: str) -> None:
+        self.name = name
+        self.command = command
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._task: asyncio.Task | None = None
+
+    async def request(self, method: str, params: dict) -> dict:
+        if self._task is None:
+            self._task = asyncio.create_task(self._serve())
+        if self._task.done():
+            exc = self._task.exception()
+            raise RuntimeError(f"mcp server {self.name!r} is not running: {exc!r}")
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        await self._queue.put((method, params, future))
+        return await future
+
+    async def _serve(self) -> None:
+        import shlex
+
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        argv = shlex.split(self.command)
+        server = StdioServerParameters(command=argv[0], args=argv[1:])
+        try:
+            async with stdio_client(server) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    while True:
+                        method, params, future = await self._queue.get()
+                        try:
+                            if method == "tools/list":
+                                result = await session.list_tools()
+                            elif method == "tools/call":
+                                result = await session.call_tool(
+                                    params["name"], params.get("arguments") or {}
+                                )
+                            else:
+                                raise ValueError(f"unsupported mcp method: {method!r}")
+                            payload = result.model_dump(mode="json")
+                        except Exception as exc:  # noqa: BLE001 — per-request failure
+                            if not future.done():
+                                future.set_exception(RuntimeError(str(exc)))
+                            continue
+                        if not future.done():
+                            future.set_result(payload)
+        finally:
+            # the server died (or never started): fail anything still queued
+            while not self._queue.empty():
+                _, _, future = self._queue.get_nowait()
+                if not future.done():
+                    future.set_exception(RuntimeError(f"mcp server {self.name!r} exited"))
+
+
 class Connection(Protocol):
     async def send(self, message: dict) -> None: ...
     async def receive(self) -> dict: ...
@@ -66,6 +130,7 @@ class ClientRuntime:
         platform: str = sys.platform,
         token: str | None = None,
         command_timeout: float = 900.0,
+        mcp_servers: dict[str, str] | None = None,
     ) -> None:
         self.name = name
         self.platform = platform
@@ -73,6 +138,11 @@ class ClientRuntime:
         self.mirrors_root = Path(mirrors_root).expanduser()
         self.token = token
         self.command_timeout = command_timeout
+        # name -> launch command for local stdio MCP servers the lab may call
+        # through this client (announced in hello, tunneled over the socket).
+        self._mcp: dict[str, MCPBridge] = {
+            name: MCPBridge(name, cmd) for name, cmd in (mcp_servers or {}).items()
+        }
         self.assigned_name: str | None = None
         # The lab's stable id (from hello_ok) — namespaces this lab's mirrors so
         # several labs can share one client machine without colliding on
@@ -89,6 +159,8 @@ class ClientRuntime:
         }
         if self.token:
             hello["token"] = self.token
+        if self._mcp:
+            hello["mcp_servers"] = sorted(self._mcp)
         await conn.send(hello)
         reply = await conn.receive()
         if reply.get("type") != "hello_ok":
@@ -108,6 +180,10 @@ class ClientRuntime:
                 await self._handle_mirror(conn, msg)
             elif msg.get("type") == "clean":
                 await self._handle_clean(conn, msg)
+            elif msg.get("type") == "mcp":
+                # MCP calls can be slow (a page load); serve them off-loop so
+                # tasks/fetches keep flowing while the browser works.
+                asyncio.create_task(self._handle_mcp(conn, msg))
 
     def _mirror_root(self, project: object) -> Path:
         # Lab id and project name come off the wire — keep each a single path
@@ -205,6 +281,22 @@ class ClientRuntime:
             frame.update(ok=False, error=str(exc))
         await conn.send(frame)
 
+    async def _handle_mcp(self, conn: Connection, msg: dict) -> None:
+        """Forward one tunneled MCP request to a local stdio MCP server."""
+        frame: dict = {"type": "mcp_result", "task_id": msg["task_id"]}
+        bridge = self._mcp.get(str(msg.get("server")))
+        if bridge is None:
+            frame.update(ok=False, error=f"no mcp server named {msg.get('server')!r}")
+        else:
+            try:
+                result = await bridge.request(
+                    str(msg.get("method")), msg.get("params") or {}
+                )
+                frame.update(ok=True, result=result)
+            except Exception as exc:  # noqa: BLE001 — surfaced to the lab/agent
+                frame.update(ok=False, error=str(exc))
+        await conn.send(frame)
+
     @staticmethod
     async def _send_result(
         conn: Connection, task_id: str, *, ok: bool, returncode: int,
@@ -228,11 +320,13 @@ class _WsConnection:
 
     def __init__(self, ws) -> None:
         self._ws = ws
+        self._send_lock = asyncio.Lock()
 
     async def send(self, message: dict) -> None:
         import json
 
-        await self._ws.send(json.dumps(message))
+        async with self._send_lock:  # mcp results are sent from their own tasks
+            await self._ws.send(json.dumps(message))
 
     async def receive(self) -> dict:
         import json

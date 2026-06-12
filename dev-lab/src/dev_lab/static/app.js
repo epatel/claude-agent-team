@@ -204,9 +204,10 @@ function renderClients() {
   box.hidden = state.clients.length === 0;
   for (const c of state.clients) {
     const caps = (c.capabilities || []).map((x) => x.name).join(", ");
+    const mcp = (c.mcp_servers || []).length ? ` · mcp: ${c.mcp_servers.join(", ")}` : "";
     const li = document.createElement("li");
     li.className = "client";
-    li.title = `${c.platform}${caps ? " — " + caps : ""}`;
+    li.title = `${c.platform}${caps ? " — " + caps : ""}${mcp}`;
     li.innerHTML =
       `<span class="client-dot"></span><span class="cname">${escapeHtml(c.name)}</span>` +
       `<span class="client-platform">${escapeHtml(c.platform)}</span>`;

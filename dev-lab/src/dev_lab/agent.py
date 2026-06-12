@@ -153,7 +153,68 @@ def _client_tools(registry: ClientRegistry, project_root: Path) -> list:
         summary = {"written": sorted(written), "errors": errors}
         return {"content": [{"type": "text", "text": json.dumps(summary)}]}
 
-    return [list_clients, run_on_client, fetch_from_client]
+    @tool(
+        "list_client_mcp_tools",
+        "List the tools offered by an MCP server running on a connected "
+        "platform client (clients announce their mcp servers in list_clients). "
+        "Calls are tunneled over the client's connection — e.g. a 'browser' "
+        "server (Playwright MCP) on a Mac exposes navigate/snapshot/screenshot "
+        "tools that run in a real browser on that machine.",
+        {
+            "type": "object",
+            "properties": {
+                "client": {"type": "string", "description": "client name from list_clients"},
+                "server": {"type": "string", "description": "mcp server name on that client"},
+            },
+            "required": ["client", "server"],
+        },
+    )
+    async def list_client_mcp_tools(args: dict) -> dict:
+        try:
+            result = await registry.mcp_call(
+                str(args["client"]), server=str(args["server"]), method="tools/list"
+            )
+        except ClientError as exc:
+            return {"content": [{"type": "text", "text": f"error: {exc}"}], "is_error": True}
+        return {"content": [{"type": "text", "text": json.dumps(result.get("tools", []))}]}
+
+    @tool(
+        "call_client_mcp_tool",
+        "Call one tool of an MCP server running on a connected platform "
+        "client (discover tools with list_client_mcp_tools). The server keeps "
+        "its state between calls — e.g. a browser page stays loaded across "
+        "navigate/snapshot/screenshot calls. Results pass through verbatim, "
+        "including images (screenshots), so you can look at them.",
+        {
+            "type": "object",
+            "properties": {
+                "client": {"type": "string", "description": "client name from list_clients"},
+                "server": {"type": "string", "description": "mcp server name on that client"},
+                "tool": {"type": "string", "description": "tool name from list_client_mcp_tools"},
+                "arguments": {"type": "object", "description": "tool arguments (per its schema)"},
+            },
+            "required": ["client", "server", "tool"],
+        },
+    )
+    async def call_client_mcp_tool(args: dict) -> dict:
+        try:
+            result = await registry.mcp_call(
+                str(args["client"]),
+                server=str(args["server"]),
+                method="tools/call",
+                params={"name": str(args["tool"]), "arguments": args.get("arguments") or {}},
+            )
+        except ClientError as exc:
+            return {"content": [{"type": "text", "text": f"error: {exc}"}], "is_error": True}
+        # MCP content blocks (text, image, ...) are exactly what SDK tools
+        # return — forward them so screenshots arrive as images.
+        content = result.get("content") or [{"type": "text", "text": "(no content)"}]
+        return {"content": content, "is_error": bool(result.get("isError"))}
+
+    return [
+        list_clients, run_on_client, fetch_from_client,
+        list_client_mcp_tools, call_client_mcp_tool,
+    ]
 
 
 def _clients_mcp_server(registry: ClientRegistry, project_root: Path):

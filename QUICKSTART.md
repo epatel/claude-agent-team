@@ -86,6 +86,18 @@ project. Mirrors live under `~/.platform-client/mirrors/<lab-id>/` — namespace
 lab's stable id (sent in `hello_ok`), so several labs can share one client
 machine without same-named projects colliding.
 
+A client can also expose local **MCP servers** to the lab's agents, tunneled
+over its own connection — e.g. a real browser the agent can drive (navigate,
+inspect the DOM via snapshots, take screenshots it can actually see):
+
+```sh
+platform-client connect --lab ws://127.0.0.1:8770/ws/client --name mac-browser \
+  --mcp browser="npx @playwright/mcp@latest"
+```
+
+The agent discovers and calls the tools with `list_client_mcp_tools` /
+`call_client_mcp_tool`; the browser page persists across calls.
+
 To gate the client endpoint, set `CLIENT_TOKEN=<secret>` in `dev-lab/.env` and
 pass `--token <secret>` (or the `CLIENT_TOKEN` env var) to the client.
 

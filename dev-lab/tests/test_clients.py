@@ -210,6 +210,60 @@ def test_mirror_returns_listing_and_clean_reports_ok():
     assert cleaned == {"ok": True, "error": None}
 
 
+def test_mcp_call_routes_and_unwraps():
+    sent = []
+    reg = ClientRegistry()
+
+    async def send(message):
+        sent.append(message)
+
+    name = reg.register(
+        name="mac", platform="darwin", capabilities=[],
+        send=send, mcp_servers=["browser"],
+    )
+    assert reg.list()[0]["mcp_servers"] == ["browser"]
+
+    async def scenario():
+        call = asyncio.create_task(
+            reg.mcp_call(name, server="browser", method="tools/call",
+                         params={"name": "navigate", "arguments": {"url": "x"}})
+        )
+        await asyncio.sleep(0)
+        msg = sent[0]
+        assert msg["type"] == "mcp"
+        assert msg["server"] == "browser"
+        assert msg["method"] == "tools/call"
+        await reg.handle_message(name, {
+            "type": "mcp_result", "task_id": msg["task_id"],
+            "ok": True, "result": {"content": [{"type": "text", "text": "done"}]},
+        })
+        out = await call
+
+        # unknown server is refused before any frame goes out
+        try:
+            await reg.mcp_call(name, server="nope", method="tools/list")
+            raise AssertionError("expected ClientError")
+        except ClientError as exc:
+            assert "no mcp server" in str(exc)
+
+        # a server-side failure raises with the client's reason
+        fail = asyncio.create_task(reg.mcp_call(name, server="browser", method="tools/list"))
+        await asyncio.sleep(0)
+        await reg.handle_message(name, {
+            "type": "mcp_result", "task_id": sent[-1]["task_id"],
+            "ok": False, "error": "browser crashed",
+        })
+        try:
+            await fail
+            raise AssertionError("expected ClientError")
+        except ClientError as exc:
+            assert "browser crashed" in str(exc)
+        return out
+
+    out = asyncio.run(scenario())
+    assert out == {"content": [{"type": "text", "text": "done"}]}
+
+
 def test_mirror_fails_on_disconnect():
     sent = []
     reg, name = _registry_with_client(sent)
@@ -251,7 +305,7 @@ def test_ws_client_hello_registers_and_disconnect_unregisters(tmp_path):
         listed = app.state.registry.list()
         assert listed == [{
             "name": "mac", "platform": "darwin",
-            "capabilities": [{"name": "run_tests"}],
+            "capabilities": [{"name": "run_tests"}], "mcp_servers": [],
         }]
     assert app.state.registry.list() == []
 

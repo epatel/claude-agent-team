@@ -13,7 +13,7 @@ runs commands in a manifest-synced mirror of a project's working tree:
 from . import manifest
 from .runtime import ClientRuntime, connect_forever, connect_once
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "ClientRuntime",

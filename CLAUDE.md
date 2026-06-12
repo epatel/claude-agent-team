@@ -24,6 +24,7 @@ self-contained.
 - [dev-lab](cards/dev-lab.md) — the autonomous agent loop, sessions, anything running on the Pi
 - [chat-client](cards/chat-client.md) — the older CLI control surface (secondary to the web console)
 - [extension-clients](cards/extension-clients.md) — platform clients: remote build/test, capability providers, manifest sync, the client wire protocol
+- [client-mcp-servers](cards/client-mcp-servers.md) — tunneled MCP: a browser (or any stdio MCP server) on a client machine, driven by the agent over the dialed-in socket
 - [repo-sync](cards/repo-sync.md) — git, GitHub, branches, how work lands
 - [deployment](cards/deployment.md) — running on the Pi 5, systemd, venvs, secrets, restarts
 

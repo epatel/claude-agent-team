@@ -31,3 +31,6 @@ dev-lab-queue/
 
 # Local scratch repos for manual testing
 manual-test/
+
+# Playwright MCP scratch output (session logs, snapshots, screenshots)
+.playwright-mcp/

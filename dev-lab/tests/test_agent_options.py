@@ -90,6 +90,43 @@ def test_fetch_from_client_tool_writes_into_project_tree(tmp_path):
     assert (tmp_path / "bin" / "hello").read_bytes() == b"ELF..."
 
 
+def test_call_client_mcp_tool_forwards_content_blocks(tmp_path):
+    registry = ClientRegistry()
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    name = registry.register(
+        name="mac", platform="darwin", capabilities=[], send=send,
+        mcp_servers=["browser"],
+    )
+    handlers = _handlers(registry, tmp_path)
+
+    async def scenario():
+        call = asyncio.create_task(handlers["call_client_mcp_tool"]({
+            "client": name, "server": "browser",
+            "tool": "screenshot", "arguments": {},
+        }))
+        await asyncio.sleep(0)
+        await registry.handle_message(name, {
+            "type": "mcp_result", "task_id": sent[0]["task_id"], "ok": True,
+            "result": {"content": [
+                {"type": "image", "data": "aWJtZw==", "mimeType": "image/png"},
+                {"type": "text", "text": "took screenshot"},
+            ]},
+        })
+        return await call
+
+    out = asyncio.run(scenario())
+    # image blocks pass through untouched so the agent can SEE the screenshot
+    assert out["content"][0] == {"type": "image", "data": "aWJtZw==", "mimeType": "image/png"}
+    assert out["is_error"] is False
+    # unknown server surfaces as a readable tool error
+    err = asyncio.run(handlers["list_client_mcp_tools"]({"client": name, "server": "x"}))
+    assert err["is_error"] is True
+
+
 def test_run_on_client_tool_returns_result_json(tmp_path):
     (tmp_path / "a.py").write_text("x")
     registry = ClientRegistry()

@@ -61,6 +61,8 @@ Each line is a settled choice no agent should reopen without flagging here.
 
 - 2026-06-10 — **Per-project agent config in the console** ("agent" tab): an extra system-prompt append and MCP servers live on the project row (migration #9, validated JSON), skills live in the repo under `.claude/skills/` (committed like code, `skills="all"` on the SDK options).
 
+- 2026-06-12 — **Tunneled MCP servers on platform clients**: `--mcp name=command` spawns local stdio MCP servers on the client (e.g. Playwright's browser MCP); the lab tunnels `tools/list`/`tools/call` over the dialed-in socket (`mcp`/`mcp_result` frames) and the agent uses `list_client_mcp_tools`/`call_client_mcp_tool` — server state (a loaded page) persists across calls, images pass through so the agent can see screenshots. Keeps the reversed-connection property; capabilities stay advisory, `CLIENT_TOKEN` stays the trust boundary.
+
 ## Current state / handoff
 
 **M0–M4 done** (branch `m0-skeleton`). **v2 web console done** (branch

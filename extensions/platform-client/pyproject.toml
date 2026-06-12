@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "platform-client"
-version = "0.4.0"
+version = "0.5.0"
 description = "Shared scaffold for platform clients: the capability-independent parts of an extension MCP server."
 requires-python = ">=3.11"
 dependencies = [

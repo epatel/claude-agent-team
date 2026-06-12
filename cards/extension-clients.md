@@ -67,6 +67,10 @@ sequenceDiagram
   file-browser source tabs are built on this) and delete a project's mirror
   outright (`clean` — exposed as "remove mirror" in the console; the client
   stays connected and re-syncs on its next run).
+- **Tunneled MCP servers** — a client can run local stdio MCP servers
+  (`--mcp name="command"`) and the lab tunnels tool calls over the same
+  dialed-in socket; the agent drives a real browser on the client and sees
+  the screenshots. The full design is cards/client-mcp-servers.md.
 - **Shared scaffold** — `extensions/platform-client` (package
   `platform_client`) owns manifest sync, the runtime, and the
   `platform-client connect --lab <url>` CLI. A new client is configuration

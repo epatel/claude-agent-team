@@ -25,6 +25,11 @@ correlation id — fetches use it too):
   client → lab   {type: "mirror_result", task_id, exists, manifest}
   lab → client   {type: "clean", task_id, project}          # delete the mirror
   client → lab   {type: "clean_done", task_id, ok, error?}
+  lab → client   {type: "mcp", task_id, server, method, params}   # tunneled MCP
+  client → lab   {type: "mcp_result", task_id, ok, result|error}  # (tools/list,
+                                                     # tools/call against a stdio
+                                                     # MCP server the client runs
+                                                     # locally, e.g. a browser)
 """
 
 from __future__ import annotations
@@ -63,6 +68,9 @@ class _Client:
     name: str
     platform: str
     capabilities: list[dict]
+    # Names of local stdio MCP servers announced in the hello — callable
+    # through the tunnel (mcp/mcp_result frames).
+    mcp_servers: list[str]
     send: Send
     tasks: dict[str, _Task] = field(default_factory=dict)
     fetches: dict[str, _Fetch] = field(default_factory=dict)
@@ -79,7 +87,13 @@ class ClientRegistry:
     # -- connection lifecycle ------------------------------------------------
 
     def register(
-        self, *, name: str, platform: str, capabilities: list[dict], send: Send
+        self,
+        *,
+        name: str,
+        platform: str,
+        capabilities: list[dict],
+        send: Send,
+        mcp_servers: list[str] | None = None,
     ) -> str:
         """Add a connected client; a taken name gets a ``_2`` / ``_3`` … suffix."""
         final = name or "client"
@@ -87,7 +101,9 @@ class ClientRegistry:
         while final in self._clients:
             final = f"{name}_{n}"
             n += 1
-        self._clients[final] = _Client(final, platform, capabilities, send)
+        self._clients[final] = _Client(
+            final, platform, capabilities, list(mcp_servers or []), send
+        )
         return final
 
     def unregister(self, name: str) -> None:
@@ -104,14 +120,18 @@ class ClientRegistry:
 
     def list(self) -> list[dict]:
         return [
-            {"name": c.name, "platform": c.platform, "capabilities": c.capabilities}
+            {
+                "name": c.name, "platform": c.platform,
+                "capabilities": c.capabilities, "mcp_servers": c.mcp_servers,
+            }
             for c in sorted(self._clients.values(), key=lambda c: c.name)
         ]
 
     def get(self, name: str) -> dict | None:
         c = self._clients.get(name)
         return None if c is None else {
-            "name": c.name, "platform": c.platform, "capabilities": c.capabilities
+            "name": c.name, "platform": c.platform,
+            "capabilities": c.capabilities, "mcp_servers": c.mcp_servers,
         }
 
     # -- task dispatch ---------------------------------------------------------
@@ -213,6 +233,35 @@ class ClientRegistry:
             describe=f"mirror clean on {name}",
         )
 
+    async def mcp_call(
+        self, name: str, *, server: str, method: str, params: dict | None = None,
+        timeout: float = 120.0,
+    ) -> dict:
+        """Tunnel one MCP request (tools/list, tools/call) to ``name``'s server.
+
+        The client runs the MCP server locally (announced in its hello) and
+        owns its state — e.g. a browser page stays loaded between calls.
+        Returns the raw MCP result dict; raises ``ClientError`` on a tunnel or
+        server-side failure so agent tools surface a readable error.
+        """
+        client = self._clients.get(name)
+        if client is None:
+            raise ClientError(f"no connected client named {name!r}")
+        if server not in client.mcp_servers:
+            raise ClientError(
+                f"client {name!r} announces no mcp server named {server!r} "
+                f"(has: {', '.join(client.mcp_servers) or 'none'})"
+            )
+        reply = await self._request(
+            name,
+            {"type": "mcp", "server": server, "method": method, "params": params or {}},
+            timeout=timeout,
+            describe=f"mcp {method} on {name}/{server}",
+        )
+        if not reply.get("ok"):
+            raise ClientError(str(reply.get("error") or "mcp call failed"))
+        return reply.get("result") or {}
+
     async def _request(
         self, name: str, message: dict, *, timeout: float, describe: str
     ) -> dict:
@@ -251,6 +300,14 @@ class ClientRegistry:
             elif msg.get("type") == "clean_done":
                 request.set_result(
                     {"ok": bool(msg.get("ok")), "error": msg.get("error")}
+                )
+            elif msg.get("type") == "mcp_result":
+                request.set_result(
+                    {
+                        "ok": bool(msg.get("ok")),
+                        "result": msg.get("result"),
+                        "error": msg.get("error"),
+                    }
                 )
         elif task is not None:
             if msg.get("type") == "need":
