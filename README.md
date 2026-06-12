@@ -2,7 +2,7 @@
 
 # claude-agent-team
 
-<img src="hero.png" width="836" alt="System design: browser console and platform clients connected to the always-on dev lab, which talks to Claude and git remotes">
+<img src="hero.jpg" width="836" alt="System design: browser console and platform clients connected to the always-on dev lab, which talks to Claude and git remotes">
 
 An always-on autonomous development lab: a Claude Agent SDK client that runs
 uninterrupted on any always-on host, does real dev work on git repos, is
