@@ -85,6 +85,15 @@ async def _run_turn(pm: ProjectManager, bus: EventBus, project_id: int, text: st
     await bus.publish({"type": "turn_running", "project_id": project_id, "text": text})
     try:
         result = await pm.run_turn(project_id, text, on_event=on_event)
+    except asyncio.CancelledError:
+        # The stop button: the SDK call (and its CLI subprocess) is torn down by
+        # cancellation; record a marker so the transcript explains itself on
+        # reload, and let the UI reset via its own event.
+        db.record_message(
+            pm.conn, project_id=project_id, role="assistant", content="[stopped by user]"
+        )
+        await bus.publish({"type": "turn_stopped", "project_id": project_id})
+        return
     except Exception as exc:  # noqa: BLE001 — surface, keep the socket alive
         await bus.publish({"type": "turn_failed", "project_id": project_id, "error": repr(exc)})
         return
@@ -150,6 +159,9 @@ def build_app(
     app.state.registry = registry  # reachable from tests
     pm = ProjectManager(labs_dir=labs_dir, config=config, conn=conn, client_registry=registry)
     pm.discover()
+    # The in-flight turn per project, so a console can stop it (turns within a
+    # project serialize on the pm lock, so one task per project suffices).
+    running_turns: dict[int, asyncio.Task] = {}
 
     def current_user(request: Request) -> sqlite3.Row:
         uid = request.session.get("user_id")
@@ -776,11 +788,23 @@ def build_app(
                             and text.strip()
                             and ws_can_access(pid)
                         ):
-                            asyncio.create_task(_run_turn(pm, bus, pid, text))
+                            task = asyncio.create_task(_run_turn(pm, bus, pid, text))
+                            running_turns[pid] = task
+                            task.add_done_callback(
+                                lambda t, p=pid: running_turns.pop(p, None)
+                                if running_turns.get(p) is t
+                                else None
+                            )
                         else:
                             await websocket.send_text(
                                 json.dumps({"type": "error", "error": "bad message"})
                             )
+                    elif msg.get("type") == "stop":
+                        pid = msg.get("project_id")
+                        if isinstance(pid, int) and ws_can_access(pid):
+                            task = running_turns.get(pid)
+                            if task is not None:
+                                task.cancel()
                     elif msg.get("type") == "state":
                         projects = [
                             _project_dict(pm, r, conn)

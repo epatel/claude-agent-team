@@ -61,6 +61,13 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   **clear chat** deletes `.lab-uploads/` along with the history (messages are
   what reference the files, so they expire together). Both endpoints cap
   files at 25 MB.
+- **Stopping a turn.** A **■ stop** button appears in the header while the
+  active project's turn runs; it sends `{type: "stop"}` over the console WS
+  and the lab cancels the turn's asyncio task (the SDK tears down the CLI
+  subprocess). Work the agent already did stays uncommitted in the working
+  tree (commit with the next turn, or **reset** it); the conversation resumes
+  from before the stopped turn; the transcript records "[stopped by user]"
+  and a `turn_stopped` event resets the UI.
 - **Agent tab.** Per-project agent setup, stored on the project row
   (migration #9) and applied on the next turn (saving drops the cached
   session; the conversation resumes): a **project prompt** appended to the

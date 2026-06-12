@@ -266,6 +266,42 @@ def test_remove_deletes_clone_history_and_cleans_mirrors(tmp_path):
         asyncio.run(pm.remove(pid))
 
 
+def test_cancelled_turn_releases_the_project_lock(tmp_path):
+    """The stop button cancels the turn task — the project must stay usable."""
+    src = tmp_path / "src"
+    _src_repo(src)
+    started = asyncio.Event()
+
+    async def hanging(message, *, cwd, model, resume=None, on_event=None):
+        started.set()
+        await asyncio.sleep(60)
+        return AgentResult("never", 1, False, 0.0, session_id="s")
+
+    async def quick(message, *, cwd, model, resume=None, on_event=None):
+        (Path(cwd) / "after.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s2")
+
+    pm, _conn, labs = _pm(tmp_path, run_task=hanging)
+    pid = pm.create(str(src))["id"]
+
+    async def scenario():
+        task = asyncio.create_task(pm.run_turn(pid, "hang"))
+        await started.wait()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        # the lock must be free again: a follow-up turn runs to completion
+        pm._run_task = quick
+        pm._sessions[pid]._run_task = quick
+        return await pm.run_turn(pid, "follow-up")
+
+    result = asyncio.run(scenario())
+    assert result.committed is True
+    assert (labs / "src" / "after.txt").exists()
+
+
 def test_upload_files_writes_commits_and_guards(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

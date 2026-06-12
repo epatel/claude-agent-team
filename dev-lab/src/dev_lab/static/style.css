@@ -364,6 +364,8 @@ input:focus, textarea:focus {
 .np-model:hover { border-color: var(--accent-dim); }
 .clear-chat-btn { font-size: 11px; padding: 6px 12px; }
 .clear-chat-btn[hidden] { display: none; }
+.stop-btn { font-size: 11px; padding: 6px 12px; }
+.stop-btn[hidden] { display: none; }
 .sys { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; padding: 4px 0; }
 .sys.bad { color: var(--bad); }
 .active-name { font-family: var(--mono); font-weight: 600; letter-spacing: .03em; }

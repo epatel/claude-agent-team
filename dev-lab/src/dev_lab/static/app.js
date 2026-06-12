@@ -129,6 +129,11 @@ $("#register-btn").addEventListener("click", () => {
   }
   doAuth("/api/register");
 });
+$("#stop-btn").addEventListener("click", () => {
+  if (state.activeId == null || !state.ws) return;
+  state.ws.send(JSON.stringify({ type: "stop", project_id: state.activeId }));
+});
+
 $("#logout-btn").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
   if (state.ws) state.ws.close();
@@ -329,6 +334,7 @@ async function openProject(id) {
   const t = $("#transcript");
   t.innerHTML = "";
   setStatus("idle");
+  $("#stop-btn").hidden = true;
   loadBaseBranches(id);
   const msgs = await api(`/api/projects/${id}/messages`);
   for (const m of msgs) addMessage(m.role, m.content);
@@ -1016,7 +1022,7 @@ function handleEvent(e) {
     const dot = document.querySelector(`.project[data-id="${e.project_id}"] .dot`);
     if (dot) {
       if (e.type === "turn_running") dot.dataset.status = "running";
-      if (e.type === "turn_done" || e.type === "turn_failed") dot.dataset.status = "idle";
+      if (["turn_done", "turn_failed", "turn_stopped"].includes(e.type)) dot.dataset.status = "idle";
     }
   }
   if (e.type === "projects_changed") { loadProjects(); return; }
@@ -1026,7 +1032,11 @@ function handleEvent(e) {
   if (e.project_id != null && e.project_id !== state.activeId) return;
 
   switch (e.type) {
-    case "turn_running": startAssistant(); setStatus("running"); break;
+    case "turn_running":
+      startAssistant();
+      setStatus("running");
+      $("#stop-btn").hidden = false;
+      break;
     case "tool_use":
       if (state.activity) {
         const chip = document.createElement("span");
@@ -1061,6 +1071,17 @@ function handleEvent(e) {
       state.assistantBody = null;
       state.activity = null;
       setStatus("idle");
+      $("#stop-btn").hidden = true;
+      break;
+    }
+    case "turn_stopped": {
+      const div = state.assistantBody && state.assistantBody.closest(".msg");
+      if (div) div.classList.remove("pending");
+      systemLine("■ stopped — partial work stays in the working tree", true);
+      state.assistantBody = null;
+      state.activity = null;
+      setStatus("idle");
+      $("#stop-btn").hidden = true;
       break;
     }
     case "turn_failed":
@@ -1071,6 +1092,7 @@ function handleEvent(e) {
       div.textContent = "✗ " + (e.error || "error");
       t.appendChild(div);
       setStatus("idle");
+      $("#stop-btn").hidden = true;
       scrollBottom();
       break;
     }
