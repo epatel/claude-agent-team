@@ -134,6 +134,37 @@ $("#stop-btn").addEventListener("click", () => {
   state.ws.send(JSON.stringify({ type: "stop", project_id: state.activeId }));
 });
 
+// Mobile screen flow: back to the project list (the project keeps running).
+$("#back-btn").addEventListener("click", () => {
+  document.body.classList.remove("project-open");
+});
+
+// On mobile, attachments come from the photo library / camera — the native
+// picker handles both when the input is image-only.
+const mobileMedia = window.matchMedia("(max-width: 700px)");
+function applyMobileAttach() {
+  if (mobileMedia.matches) $("#attach-input").setAttribute("accept", "image/*");
+  else $("#attach-input").removeAttribute("accept");
+}
+applyMobileAttach();
+mobileMedia.addEventListener("change", applyMobileAttach);
+
+// Keep the header in view when the on-screen keyboard opens: size the app to
+// the visual viewport (iOS doesn't shrink any CSS unit for the keyboard) and
+// undo the document pan the browser does to expose the focused input.
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const syncViewport = () => {
+    if (!mobileMedia.matches) return;
+    document.documentElement.style.setProperty("--vvh", vv.height + "px");
+    if (window.scrollY > 0 || vv.offsetTop > 0) window.scrollTo(0, 0);
+    scrollBottom();  // keep the conversation pinned to the latest message
+  };
+  vv.addEventListener("resize", syncViewport);
+  vv.addEventListener("scroll", syncViewport);
+  syncViewport();
+}
+
 $("#logout-btn").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" });
   if (state.ws) state.ws.close();
@@ -310,6 +341,7 @@ $("#new-project-form").addEventListener("submit", (e) => {
 
 async function openProject(id) {
   state.activeId = id;
+  document.body.classList.add("project-open");  // mobile: slide to the project screen
   renderProjects();
   const p = state.projects.find((x) => x.id === id);
   $("#active-name").textContent = p.name;
@@ -1298,8 +1330,13 @@ function renderSourceTabs() {
   }
 }
 
+$("#files-back").addEventListener("click", () => {
+  $("#files-dialog").classList.remove("viewing");
+});
+
 async function loadSource() {
   fileBrowser.activePath = null;
+  $("#files-dialog").classList.remove("viewing");
   $("#file-content").innerHTML = '<div class="file-empty">select a file to view it</div>';
   const tree = $("#file-tree");
   tree.innerHTML = '<div class="modal-loading">loading…</div>';
@@ -1541,6 +1578,7 @@ function sourceRawUrl(path) {
 
 async function openFile(path, name) {
   fileBrowser.activePath = path;
+  $("#files-dialog").classList.add("viewing");  // mobile: tree -> viewer screen
   document.querySelectorAll("#file-tree .tree-item.active").forEach((el) => el.classList.remove("active"));
   document.querySelectorAll("#file-tree .tree-file").forEach((el) => {
     if (el.querySelector(".tree-name")?.textContent === name) el.classList.add("active");

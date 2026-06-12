@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
   <title>the lab</title>
   <!-- PWA identity: without an own manifest the browser falls back to the
        origin's identity (which also hosts other apps) — relative paths keep
@@ -68,6 +68,8 @@
     <main class="chat">
       <header class="chat-head">
         <div class="head-left">
+          <button id="back-btn" class="back-btn ghost" type="button"
+            aria-label="back to the project list" title="Back to the project list">‹</button>
           <span id="active-name" class="active-name">—</span>
           <span id="active-branch" class="branch-chip"></span>
         </div>
@@ -252,6 +254,8 @@
   <!-- REPO BROWSER -->
   <dialog id="files-dialog" class="modal modal-wide">
     <div class="modal-head">
+      <button id="files-back" class="ghost files-back" type="button"
+        title="Back to the file tree">‹ files</button>
       <span id="files-title" class="modal-title">files</span>
       <button type="button" class="modal-close ghost" data-close="files-dialog">close</button>
     </div>

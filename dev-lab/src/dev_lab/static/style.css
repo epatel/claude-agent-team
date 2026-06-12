@@ -646,3 +646,62 @@ button.danger:hover { filter: brightness(1.08); }
 button.mini { font-size: 11px; padding: 3px 9px; margin-left: 6px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
 button.mini:hover { border-color: var(--accent-dim); }
 button.mini.danger:hover { border-color: var(--bad); color: var(--bad); }
+
+.files-back { display: none; }
+
+/* ---------- MOBILE (separate screens: project list <-> project view) ---------
+   Below 700px the two-pane layout becomes a screen flow: the sidebar is the
+   "projects" screen; opening a project slides to the project screen with a
+   back button. File transfer surfaces are hidden — attachments come from the
+   photo library / camera (the attach input is image-only on mobile, app.js). */
+.back-btn { display: none; }
+
+@media (max-width: 700px) {
+  /* Size to the VISUAL viewport: --vvh is fed by the VisualViewport API
+     (app.js), so the layout shrinks when the keyboard opens instead of the
+     browser panning the header out of view; 100dvh covers the rest. */
+  .app { display: block; height: var(--vvh, 100dvh); }
+  .sidebar { width: 100%; height: 100%; border-right: 0; }
+  .chat { height: 100%; }
+
+  /* screen flow: list when no project is open, project view when one is */
+  body:not(.project-open) .chat { display: none; }
+  body.project-open .sidebar { display: none; }
+  body.project-open .back-btn {
+    display: inline-block; padding: 4px 12px; font-size: 16px; line-height: 1;
+  }
+
+  /* bigger touch targets, slimmer chrome */
+  .project { padding: 13px 12px; }
+  .chat-head { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
+  .head-left { gap: 8px; }
+  .active-name { font-size: 14px; }
+  .transcript { padding: 14px 12px; gap: 14px; }
+  .chat-input { padding: 10px 12px; gap: 8px; }
+  .attach-chips { padding: 8px 12px; }
+  .repo-panel { padding: 14px 12px; }
+  .modal, .modal-wide { width: 100vw; max-height: 94vh; border-radius: 10px; }
+
+  /* file browser becomes two screens: the tree, then the file viewer */
+  .files-body { height: 82vh; }
+  .file-tree { width: 100%; flex: 1 1 auto; border-right: 0; }
+  .tree-item { padding-top: 8px; padding-bottom: 8px; }
+  .file-content { display: none; }
+  #files-dialog.viewing .file-tree { display: none; }
+  #files-dialog.viewing .file-content { display: block; }
+  #files-dialog.viewing .files-back { display: inline-block; padding: 4px 10px; }
+
+  /* admin becomes a full-screen sheet; diffs/code tighten up */
+  .overlay { padding: 0; align-items: stretch; }
+  .admin-panel { width: 100%; max-height: 100vh; border-radius: 0; }
+  .file-code, .diff-file { font-size: 11.5px; }
+  .modal-body { padding: 12px; }
+  .files-context, .files-sources { padding: 6px 10px; }
+
+  /* no file transfer on mobile: downloads, repo uploads, skill drops */
+  #archive-btn,
+  .file-download,
+  .files-upload,
+  .upload-dest,
+  #skill-drop { display: none !important; }
+}
