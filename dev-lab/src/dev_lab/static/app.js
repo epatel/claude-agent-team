@@ -970,7 +970,7 @@ function addMessage(role, content) {
   const body = document.createElement("div");
   body.className = "msg-body";
   div.appendChild(body);
-  if (role === "assistant") renderMarkdown(body, content);
+  if (role === "assistant") renderMarkdown(body, content, "");  // repo-rooted refs
   else body.textContent = content;
   t.appendChild(div);
   scrollBottom();
@@ -979,10 +979,11 @@ function addMessage(role, content) {
 
 async function renderMarkdown(el, text, baseDir) {
   el.innerHTML = DOMPurify.sanitize(marked.parse(text || ""));
-  // When rendering a markdown *file*, resolve its relative image references
-  // (e.g. ![](img/diagram.png)) against the file's directory and point them at
-  // the project's raw-file endpoint — the browser can't fetch repo-relative
-  // paths on its own. baseDir is undefined for chat markdown, leaving src as-is.
+  // Resolve relative image references (e.g. ![](img/diagram.png)) against
+  // baseDir — a markdown file's directory, or "" (the repo root) for chat
+  // messages, so the agent can embed e.g. ![shot](.lab-uploads/x.png) — and
+  // point them at the project's raw-file endpoint; the browser can't fetch
+  // repo-relative paths on its own. External/data URLs are left untouched.
   if (baseDir !== undefined) {
     for (const img of el.querySelectorAll("img")) {
       const rel = resolveRepoPath(baseDir, img.getAttribute("src") || "");
@@ -1116,7 +1117,7 @@ function handleEvent(e) {
     case "agent_message":
       if (!state.assistantBody) startAssistant();
       state.text += (e.text || "") + "\n\n";
-      if (state.assistantBody) renderMarkdown(state.assistantBody, state.text);
+      if (state.assistantBody) renderMarkdown(state.assistantBody, state.text, "");
       scrollBottom();
       break;
     case "turn_done": {
