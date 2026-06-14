@@ -29,6 +29,14 @@ make setup            # creates dev-lab/.venv, chat-client/.venv, extensions/pla
 make test             # unit tests — no network, no credits
 ```
 
+To set up (or re-setup) just one component, use its `setup.<name>` target:
+
+```sh
+make setup.dev-lab          # also installs the platform client into the lab's venv
+make setup.chat-client
+make setup.platform-client
+```
+
 Entry points live at `<component>/.venv/bin/<name>`; alternatively
 `source dev-lab/.venv/bin/activate` to use the bare `dev-lab` command.
 
