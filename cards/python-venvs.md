@@ -25,6 +25,17 @@ extension client gets its own on its host).
 - Never commit a venv; `.env` and venv directories stay gitignored.
 - Pin dependencies for reproducible installs on the Pi.
 
+## Setup
+
+`make setup` creates and populates every component's venv. Each component also
+has its own `setup.<name>` target for setting up (or re-setting-up) just one:
+`make setup.dev-lab`, `make setup.chat-client`, `make setup.platform-client`.
+
+`setup.dev-lab` additionally installs the platform client into the lab's venv —
+the lab shares the manifest-sync primitives (`dev_lab/clients.py` imports
+`platform_client.manifest`) and a `pyproject` can't express that relative-path
+dep, so the Makefile wires it up by hand.
+
 ## Revisit if
 
 - Dependency/version conflicts across components grow painful enough to warrant a
