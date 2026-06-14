@@ -599,6 +599,36 @@ class ProjectManager:
                 commit = ws.commit_all(f"Upload {what} via web console")
         return {"written": sorted(written), "errors": errors, "commit": commit}
 
+    async def delete_path(self, project_id: int, relpath: str) -> dict:
+        """Delete a file or directory from a project's working tree and commit.
+
+        Repo-relative; refuses the root, ``.git``, and traversal. A directory
+        is removed recursively. The commit keeps the no-uncommitted-changes
+        invariant a chat session needs; deleting an untracked/ignored path
+        (e.g. ``.lab-uploads/…``) leaves the tree clean, so ``commit`` is None.
+        """
+        rel = (relpath or "").strip().strip("/")
+        if not rel:
+            raise ProjectError("no path to delete")
+        if ".git" in PurePosixPath(rel).parts or ".." in PurePosixPath(rel).parts:
+            raise ProjectError(f"refused: {relpath!r}")
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            root = ws.path.resolve()
+            target = (root / rel).resolve()
+            if root not in target.parents:
+                raise ProjectError("path escapes the project root")
+            if not target.exists():
+                raise ProjectError(f"no such path: {relpath!r}")
+            is_dir = target.is_dir()
+            if is_dir:
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+            commit = ws.commit_all(f"Delete {rel} via web console") if ws.is_dirty() else None
+        return {"deleted": rel, "is_dir": is_dir, "commit": commit}
+
     async def chat_uploads(self, project_id: int, files: list[tuple[str, bytes]]) -> list[dict]:
         """Save chat attachments under ``.lab-uploads/`` in the working tree.
 

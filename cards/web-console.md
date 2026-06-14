@@ -52,6 +52,13 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   browser's lab tab (`POST …/upload`, multipart + a `dest` dir field) writes
   into the working tree and **commits immediately** — a dangling uncommitted
   upload would block the next chat session (`LabSession` refuses a dirty tree).
+  Uploads go into the directory you're viewing — selecting a directory in the
+  file browser shows a **directory view** (path, item count, *upload files
+  here*, *delete directory*) in the right pane instead of the last-opened
+  file; the root view is the upload-to-root landing. Files get a **delete**
+  button next to download. Delete and upload both commit immediately and are
+  refused for `.git`/traversal/the root (`DELETE …/path?path=`,
+  `POST …/upload` with a `dest` dir).
   **For the chat**: the `+` button (or pasting a file/screenshot into the input)
   uploads to `.lab-uploads/` in the clone (`POST …/chat-upload`), shows pending
   chips, and the sent message lists the relative paths for the agent to read.

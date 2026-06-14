@@ -302,6 +302,46 @@ def test_cancelled_turn_releases_the_project_lock(tmp_path):
     assert (labs / "src" / "after.txt").exists()
 
 
+def test_delete_path_removes_files_dirs_and_guards(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+    pm, _conn, labs = _pm(tmp_path)
+    pid = pm.create(str(src))["id"]
+    clone = labs / "src"
+    (clone / "docs").mkdir()
+    (clone / "docs" / "a.txt").write_text("a\n")
+    (clone / "docs" / "b.txt").write_text("b\n")
+    subprocess.run(["git", "-C", str(clone), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(clone), "commit", "-q", "-m", "docs"], check=True)
+
+    # delete one file → committed, gone, sibling kept
+    r = asyncio.run(pm.delete_path(pid, "docs/a.txt"))
+    assert r["deleted"] == "docs/a.txt" and r["is_dir"] is False and r["commit"]
+    assert not (clone / "docs" / "a.txt").exists()
+    assert (clone / "docs" / "b.txt").exists()
+
+    # delete the whole directory → committed, gone
+    r = asyncio.run(pm.delete_path(pid, "docs"))
+    assert r["is_dir"] is True and r["commit"]
+    assert not (clone / "docs").exists()
+
+    # guards: root, .git, traversal, missing
+    for bad in ("", "  ", ".git", ".git/config", "../escape"):
+        with pytest.raises(ProjectError, match="no path|refused|escapes"):
+            asyncio.run(pm.delete_path(pid, bad))
+    with pytest.raises(ProjectError, match="no such path"):
+        asyncio.run(pm.delete_path(pid, "nope.txt"))
+
+    # deleting an untracked/ignored path leaves the tree clean → no commit
+    (clone / ".lab-uploads").mkdir()
+    (clone / ".lab-uploads" / "x.png").write_bytes(b"x")
+    (clone / ".git" / "info").mkdir(parents=True, exist_ok=True)
+    (clone / ".git" / "info" / "exclude").write_text("/.lab-uploads/\n")
+    r = asyncio.run(pm.delete_path(pid, ".lab-uploads"))
+    assert r["commit"] is None
+    assert not (clone / ".lab-uploads").exists()
+
+
 def test_upload_files_writes_commits_and_guards(tmp_path):
     src = tmp_path / "src"
     _src_repo(src)

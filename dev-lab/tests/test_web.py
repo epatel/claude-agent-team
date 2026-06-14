@@ -636,6 +636,38 @@ def test_rebase_reset_archive_endpoints(tmp_path):
     assert fresh.get("/api/projects/1/archive").status_code == 401
 
 
+def test_delete_path_endpoint(tmp_path):
+    _src_repo(tmp_path / "myrepo")
+    client, _ = _client(tmp_path)
+    client.post("/api/register", json={"username": "a", "password": "p"})
+    pid = client.post("/api/projects", json={"remote_url": str(tmp_path / "myrepo")}).json()["id"]
+
+    # upload a file into a subdir, then delete it via the endpoint
+    client.post(
+        f"/api/projects/{pid}/upload",
+        files=[("files", ("note.txt", b"hi", "text/plain"))],
+        data={"dest": "docs"},
+    )
+    assert client.get(
+        f"/api/projects/{pid}/file", params={"path": "docs/note.txt"}
+    ).status_code == 200
+
+    r = client.request("DELETE", f"/api/projects/{pid}/path", params={"path": "docs/note.txt"})
+    assert r.status_code == 200 and r.json()["deleted"] == "docs/note.txt"
+    assert client.get(
+        f"/api/projects/{pid}/file", params={"path": "docs/note.txt"}
+    ).status_code == 400  # gone
+
+    # guards: .git and missing are 400; auth required
+    assert client.request(
+        "DELETE", f"/api/projects/{pid}/path", params={"path": ".git/config"}
+    ).status_code == 400
+    fresh, _ = _client(tmp_path / "fresh")
+    assert fresh.request(
+        "DELETE", "/api/projects/1/path", params={"path": "x"}
+    ).status_code == 401
+
+
 # --- client-mirror browsing (files dialog source tabs) -------------------------
 
 def _fake_mirror_client(app, project_name, files):

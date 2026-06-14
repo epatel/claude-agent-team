@@ -1357,22 +1357,28 @@ $("#files-back").addEventListener("click", () => {
 async function loadSource() {
   fileBrowser.activePath = null;
   $("#files-dialog").classList.remove("viewing");
-  $("#file-content").innerHTML = '<div class="file-empty">select a file to view it</div>';
+  $("#file-content").innerHTML = '<div class="file-empty">select a file or directory</div>';
   const tree = $("#file-tree");
   tree.innerHTML = '<div class="modal-loading">loading…</div>';
   $("#files-context").hidden = true;
   try {
+    let count;
     if (fileBrowser.source === "lab") {
       const { entries, branch, base, missing } = await api(`/api/projects/${state.activeId}/tree`);
       renderFilesContext(branch, base, missing);
       renderTree(tree, entries, 0);
+      count = entries.length;
     } else {
       const { paths } = await api(
         `/api/projects/${state.activeId}/clients/${encodeURIComponent(fileBrowser.source)}/mirror`
       );
       renderMirrorContext(paths.length);
       renderTree(tree, mirrorEntries(paths), 0);
+      count = paths.length;
     }
+    // Land on the root directory view (upload-to-root lives here on lab).
+    showDir("", count);
+    $("#files-dialog").classList.remove("viewing");  // start on the tree (mobile)
   } catch (err) {
     tree.innerHTML = "";
     const d = document.createElement("div");
@@ -1469,53 +1475,58 @@ function renderFilesContext(branch, base, missing) {
     warn.textContent = `${missing} file${missing === 1 ? "" : "s"} on ${base} not in this checkout`;
     el.appendChild(warn);
   }
-  appendUploadControls(el);
   el.hidden = false;
 }
 
-// Upload into the working tree (lab source only). Files are committed straight
-// away — a dangling uncommitted upload would block the next chat session.
-function appendUploadControls(el) {
-  const dest = document.createElement("input");
-  dest.className = "upload-dest";
-  dest.placeholder = "dir (empty = root)";
-  dest.title = "Repo-relative directory to upload into; empty for the repo root";
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "ghost files-upload";
-  btn.textContent = "upload files";
-  btn.title = "Upload files into the working tree at the given directory. They are committed immediately.";
-  const picker = document.createElement("input");
-  picker.type = "file";
-  picker.multiple = true;
-  picker.hidden = true;
-  btn.addEventListener("click", () => picker.click());
-  picker.addEventListener("change", () => {
-    if (!picker.files.length) return;
-    withButton(btn, "uploading…", async () => {
-      const fd = new FormData();
-      for (const f of picker.files) fd.append("files", f, f.name);
-      fd.append("dest", dest.value.trim());
-      try {
-        const r = await api(`/api/projects/${state.activeId}/upload`, {
-          method: "POST", body: fd, headers: {},
-        });
-        for (const [name, why] of Object.entries(r.errors || {})) {
-          systemLine(`✗ upload ${name} failed: ${why}`, true);
-        }
-        if (r.written.length) {
-          systemLine(`✓ uploaded ${r.written.join(", ")}` +
-            (r.commit ? ` @ ${r.commit.slice(0, 10)}` : ""));
-        }
-        await loadSource();  // fresh tree (and context bar) with the new files
-      } catch (err) {
-        systemLine(`✗ upload failed: ${err.message}`, true);
-      }
+// Upload files into a working-tree directory (committed immediately — a
+// dangling uncommitted upload would block the next chat session), then refresh
+// the tree and re-show that directory. Lab source only.
+async function uploadToDir(dest, files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f, f.name);
+  fd.append("dest", dest);
+  try {
+    const r = await api(`/api/projects/${state.activeId}/upload`, {
+      method: "POST", body: fd, headers: {},
     });
+    for (const [name, why] of Object.entries(r.errors || {})) {
+      systemLine(`✗ upload ${name} failed: ${why}`, true);
+    }
+    if (r.written.length) {
+      systemLine(`✓ uploaded ${r.written.join(", ")}` +
+        (r.commit ? ` @ ${r.commit.slice(0, 10)}` : ""));
+    }
+  } catch (err) {
+    systemLine(`✗ upload failed: ${err.message}`, true);
+  }
+  await loadSource();
+  showDir(dest);
+}
+
+// Delete a file/directory from the repo (confirm-gated, committed), then
+// refresh the tree and land on the parent directory. Lab source only.
+async function deleteRepoPath(path, isDir) {
+  const ok = await confirmDialog({
+    title: isDir ? "delete directory" : "delete file",
+    message: `Delete ${isDir ? "directory" : "file"} "${path}" from the repo?` +
+      (isDir ? " Everything inside it goes too." : "") +
+      " The change is committed. This cannot be undone.",
+    confirmText: "delete",
   });
-  el.appendChild(btn);
-  el.appendChild(dest);
-  el.appendChild(picker);
+  if (!ok) return;
+  try {
+    const r = await api(
+      `/api/projects/${state.activeId}/path?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" },
+    );
+    systemLine(`✓ deleted ${path}` + (r.commit ? ` @ ${r.commit.slice(0, 10)}` : ""));
+  } catch (err) {
+    systemLine(`✗ delete failed: ${err.message}`, true);
+    return;
+  }
+  await loadSource();
+  showDir(dirOf(path));
 }
 
 const STATUS_LABEL = { new: "A", modified: "M", deleted: "D" };
@@ -1551,6 +1562,9 @@ function appendTreeNode(container, entry, depth) {
     container.appendChild(kids);
     let loaded = false;
     row.addEventListener("click", async () => {
+      setActiveRow(row);
+      // mirror dirs carry their children inline → known count; lab dirs fetch
+      showDir(entry.path, entry.children ? entry.children.length : undefined);
       const open = kids.hidden;
       kids.hidden = !open;
       row.querySelector(".tree-icon").textContent = open ? "▾ " : "▸ ";
@@ -1578,8 +1592,73 @@ function appendTreeNode(container, entry, depth) {
       }
     });
   } else {
-    row.addEventListener("click", () => openFile(entry.path, entry.name));
+    row.addEventListener("click", () => { setActiveRow(row); openFile(entry.path, entry.name); });
   }
+}
+
+// Single source of truth for the highlighted tree row (file or directory).
+function setActiveRow(row) {
+  document.querySelectorAll("#file-tree .tree-item.active").forEach((el) => el.classList.remove("active"));
+  if (row) row.classList.add("active");
+}
+
+// Right-pane directory view: path + item count, and (lab source only) the
+// upload-into-this-dir and delete-this-dir actions. ``path`` "" is the root.
+async function showDir(path, knownCount) {
+  fileBrowser.activePath = path;
+  $("#files-dialog").classList.add("viewing");  // mobile: tree -> viewer screen
+  const content = $("#file-content");
+  let count = knownCount;
+  if (count === undefined && fileBrowser.source === "lab") {
+    try {
+      const { entries } = await api(
+        `/api/projects/${state.activeId}/tree?path=${encodeURIComponent(path)}`,
+      );
+      count = entries.length;
+    } catch { count = null; }
+  }
+  content.innerHTML = "";
+  const crumb = document.createElement("div");
+  crumb.className = "file-crumb";
+  crumb.textContent = (path || "project root") +
+    (count != null ? `  ·  ${count} item${count === 1 ? "" : "s"}` : "");
+  content.appendChild(crumb);
+
+  if (fileBrowser.source === "lab") {
+    const actions = document.createElement("div");
+    actions.className = "dir-actions";
+
+    const up = document.createElement("button");
+    up.type = "button";
+    up.className = "ghost files-upload";
+    up.textContent = path ? "upload files here" : "upload files to root";
+    up.title = "Upload files into this directory; they are committed immediately.";
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.multiple = true;
+    picker.hidden = true;
+    up.addEventListener("click", () => picker.click());
+    picker.addEventListener("change", () => {
+      if (picker.files.length) withButton(up, "uploading…", () => uploadToDir(path, [...picker.files]));
+    });
+    actions.append(up, picker);
+
+    if (path) {  // the root itself can't be deleted
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "danger file-delete";
+      del.textContent = "delete directory";
+      del.title = "Delete this directory and everything in it from the repo.";
+      del.addEventListener("click", () => deleteRepoPath(path, true));
+      actions.appendChild(del);
+    }
+    content.appendChild(actions);
+  }
+
+  const hint = document.createElement("div");
+  hint.className = "file-empty";
+  hint.textContent = "select a file from the tree to view it";
+  content.appendChild(hint);
 }
 
 // Endpoint prefixes for the active browser source: file/raw under the lab tree
@@ -1599,10 +1678,6 @@ function sourceRawUrl(path) {
 async function openFile(path, name) {
   fileBrowser.activePath = path;
   $("#files-dialog").classList.add("viewing");  // mobile: tree -> viewer screen
-  document.querySelectorAll("#file-tree .tree-item.active").forEach((el) => el.classList.remove("active"));
-  document.querySelectorAll("#file-tree .tree-file").forEach((el) => {
-    if (el.querySelector(".tree-name")?.textContent === name) el.classList.add("active");
-  });
   const content = $("#file-content");
   content.innerHTML = '<div class="modal-loading">loading…</div>';
   try {
@@ -1706,6 +1781,13 @@ function renderFile(container, name, data) {
     dl.download = name;
     dl.title = "Download this file";
     crumb.appendChild(dl);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger file-delete";
+    del.textContent = "delete";
+    del.title = "Delete this file from the repo (committed)";
+    del.addEventListener("click", () => deleteRepoPath(data.path, false));
+    crumb.appendChild(del);
   } else {
     // A client-mirror file can be copied into the lab's working tree — the web
     // counterpart of the agent's fetch_from_client tool.

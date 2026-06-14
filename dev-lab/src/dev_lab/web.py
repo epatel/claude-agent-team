@@ -667,6 +667,15 @@ def build_app(
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.delete("/api/projects/{project_id}/path")
+    async def delete_path(project_id: int, request: Request, path: str) -> dict:
+        """Delete a file or directory from the working tree (committed)."""
+        _require_project(request, project_id)
+        try:
+            return await pm.delete_path(project_id, path)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.get("/api/projects/{project_id}/raw")
     async def project_raw(project_id: int, request: Request, path: str) -> FileResponse:
         _require_project(request, project_id)
