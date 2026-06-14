@@ -107,6 +107,12 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   and have any live session rejected. The ⚙ admin panel (sidebar, super-only)
   drives all of this. Migration #5 adds `users.is_super`/`users.blocked` + the
   `invites` table and retroactively promotes the earliest existing user to super.
+- **Connected clients** — the sidebar lists platform clients (presence from
+  the registry, refreshed on `clients_changed`); each row shows a **busy
+  badge** with the count of in-flight tasks dispatched to that client
+  (run_on_client + fetch + mirror/clean/mcp), with the dot pulsing while
+  busy. The registry publishes `clients_changed` whenever a client's count
+  changes, so the badge is live.
 - **Strict per-user projects** — every project belongs to the user who created
   it (`projects.owner_id`, migration #8): non-supers see and touch only their
   own; super-users see everything. Ownerless rows (pre-migration, or checkouts

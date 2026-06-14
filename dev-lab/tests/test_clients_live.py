@@ -73,7 +73,7 @@ def test_full_round_trip_over_real_websocket(served_app, tmp_path):
         time.sleep(0.02)
     assert registry.list()[0] == {
         "name": "smoke", "platform": "testos", "capabilities": [{"name": "run"}],
-        "mcp_servers": [],
+        "mcp_servers": [], "busy": 0,
     }
 
     # dispatch a real task from the server's loop, as the agent tool would

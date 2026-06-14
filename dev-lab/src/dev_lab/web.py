@@ -159,7 +159,18 @@ def build_app(
     app = FastAPI()
     app.add_middleware(SessionMiddleware, secret_key=secret, same_site="lax")
     bus = bus or EventBus()
-    registry = ClientRegistry()
+
+    def _clients_busy_changed() -> None:
+        # A client's in-flight task count changed — nudge consoles to re-fetch
+        # /api/clients (busy badges). Fire-and-forget on the running loop.
+        try:
+            asyncio.get_running_loop().create_task(
+                bus.publish({"type": "clients_changed"})
+            )
+        except RuntimeError:
+            pass  # no loop (e.g. unit-test construction) — nothing to notify
+
+    registry = ClientRegistry(on_change=_clients_busy_changed)
     app.state.lab_id = _ensure_lab_id(Path(labs_dir) / ".dev-lab")
     app.state.registry = registry  # reachable from tests
     pm = ProjectManager(labs_dir=labs_dir, config=config, conn=conn, client_registry=registry)

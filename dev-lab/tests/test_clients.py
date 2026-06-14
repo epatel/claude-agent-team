@@ -37,6 +37,33 @@ def test_register_dedupes_names_and_lists():
     assert [c["name"] for c in reg.list()] == ["mac_2"]
 
 
+def test_busy_count_tracks_inflight_and_fires_on_change(tmp_path):
+    changes = []
+    reg = ClientRegistry(on_change=lambda: changes.append(None))
+
+    async def send(_):
+        pass
+
+    name = reg.register(name="mac", platform="darwin", capabilities=[], send=send)
+    assert reg.list()[0]["busy"] == 0
+
+    async def scenario():
+        run = asyncio.create_task(reg.run(name, project_root=tmp_path, command="true"))
+        await asyncio.sleep(0)  # let the task register
+        mid = reg.list()[0]["busy"]
+        await reg.handle_message(name, {
+            "type": "result", "task_id": next(iter(reg._clients[name].tasks)),
+            "ok": True, "returncode": 0, "stdout": "", "stderr": "", "changed": {},
+        })
+        await run
+        return mid
+
+    mid = asyncio.run(scenario())
+    assert mid == 1  # busy while the run is in flight
+    assert reg.list()[0]["busy"] == 0  # back to idle after it completes
+    assert len(changes) >= 2  # notified on start and on finish
+
+
 def test_run_dispatches_task_serves_files_and_returns_result(tmp_path):
     (tmp_path / "a.py").write_text("hello")
     sent = []
@@ -305,7 +332,7 @@ def test_ws_client_hello_registers_and_disconnect_unregisters(tmp_path):
         listed = app.state.registry.list()
         assert listed == [{
             "name": "mac", "platform": "darwin",
-            "capabilities": [{"name": "run_tests"}], "mcp_servers": [],
+            "capabilities": [{"name": "run_tests"}], "mcp_servers": [], "busy": 0,
         }]
     assert app.state.registry.list() == []
 

@@ -182,7 +182,15 @@ input:focus, textarea:focus {
   font-size: 12px;
 }
 .client-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.client.busy .client-dot { background: var(--run); animation: pulse 1.2s infinite; }
 .cname { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* count of in-flight tasks dispatched to this client (run / fetch / mcp) */
+.client-busy {
+  flex: none; min-width: 16px; padding: 0 5px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 10px; font-weight: 600; line-height: 1;
+  color: var(--ink); background: var(--run); border-radius: 999px;
+}
 .client-platform { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--muted); }
 .logout { width: 100%; }
 

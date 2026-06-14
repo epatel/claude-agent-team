@@ -205,11 +205,17 @@ function renderClients() {
   for (const c of state.clients) {
     const caps = (c.capabilities || []).map((x) => x.name).join(", ");
     const mcp = (c.mcp_servers || []).length ? ` · mcp: ${c.mcp_servers.join(", ")}` : "";
+    const busy = c.busy || 0;
     const li = document.createElement("li");
-    li.className = "client";
-    li.title = `${c.platform}${caps ? " — " + caps : ""}${mcp}`;
+    li.className = "client" + (busy ? " busy" : "");
+    li.title = `${c.platform}${caps ? " — " + caps : ""}${mcp}` +
+      (busy ? ` · ${busy} running task${busy === 1 ? "" : "s"}` : "");
+    const badge = busy
+      ? `<span class="client-busy" title="${busy} running task${busy === 1 ? "" : "s"}">${busy}</span>`
+      : "";
     li.innerHTML =
       `<span class="client-dot"></span><span class="cname">${escapeHtml(c.name)}</span>` +
+      badge +
       `<span class="client-platform">${escapeHtml(c.platform)}</span>`;
     ul.appendChild(li);
   }

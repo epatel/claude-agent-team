@@ -81,8 +81,21 @@ class _Client:
 class ClientRegistry:
     """Connected platform clients and the request/response plumbing to them."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_change: Callable[[], None] | None = None) -> None:
         self._clients: dict[str, _Client] = {}
+        # Called whenever a client's in-flight task count changes, so the
+        # console can refresh the per-client "busy" badge (web.py wires it to a
+        # ``clients_changed`` publish). register/unregister publish on their own.
+        self._on_change = on_change
+
+    def _notify(self) -> None:
+        if self._on_change is not None:
+            self._on_change()
+
+    @staticmethod
+    def _busy(c: _Client) -> int:
+        """In-flight work dispatched to a client: runs + fetches + requests."""
+        return len(c.tasks) + len(c.fetches) + len(c.requests)
 
     # -- connection lifecycle ------------------------------------------------
 
@@ -123,6 +136,7 @@ class ClientRegistry:
             {
                 "name": c.name, "platform": c.platform,
                 "capabilities": c.capabilities, "mcp_servers": c.mcp_servers,
+                "busy": self._busy(c),
             }
             for c in sorted(self._clients.values(), key=lambda c: c.name)
         ]
@@ -132,6 +146,7 @@ class ClientRegistry:
         return None if c is None else {
             "name": c.name, "platform": c.platform,
             "capabilities": c.capabilities, "mcp_servers": c.mcp_servers,
+            "busy": self._busy(c),
         }
 
     # -- task dispatch ---------------------------------------------------------
@@ -161,6 +176,7 @@ class ClientRegistry:
         task_id = uuid.uuid4().hex
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         client.tasks[task_id] = _Task(root=project_root, future=future)
+        self._notify()
         try:
             message = {
                 "type": "task",
@@ -179,6 +195,7 @@ class ClientRegistry:
             return {**result, "manifest_hash": manifest.manifest_hash(source)}
         finally:
             client.tasks.pop(task_id, None)
+            self._notify()
 
     async def fetch(
         self, name: str, *, project: str, paths: list[str], timeout: float = 120.0
@@ -197,6 +214,7 @@ class ClientRegistry:
         fetch_id = uuid.uuid4().hex
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         client.fetches[fetch_id] = _Fetch(future=future)
+        self._notify()
         try:
             await client.send(
                 {"type": "fetch", "task_id": fetch_id, "project": project,
@@ -208,6 +226,7 @@ class ClientRegistry:
                 raise ClientError(f"fetch from {name} timed out after {timeout}s") from None
         finally:
             client.fetches.pop(fetch_id, None)
+            self._notify()
 
     async def mirror(self, name: str, *, project: str, timeout: float = 60.0) -> dict:
         """Ask ``name`` what its mirror of ``project`` holds.
@@ -272,6 +291,7 @@ class ClientRegistry:
         request_id = uuid.uuid4().hex
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         client.requests[request_id] = future
+        self._notify()
         try:
             await client.send({**message, "task_id": request_id})
             try:
@@ -280,6 +300,7 @@ class ClientRegistry:
                 raise ClientError(f"{describe} timed out after {timeout}s") from None
         finally:
             client.requests.pop(request_id, None)
+            self._notify()
 
     # -- incoming messages -----------------------------------------------------
 
