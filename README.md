@@ -51,6 +51,9 @@ make lint     # ruff check
 make fmt      # ruff format
 ```
 
+To set up a single component, use its `setup.<name>` target — `make
+setup.dev-lab`, `make setup.chat-client`, or `make setup.platform-client`.
+
 Run the web console and connect a capability machine:
 
 ```sh
