@@ -616,6 +616,14 @@ def build_app(
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.get("/api/projects/{project_id}/status")
+    async def repo_status(project_id: int, request: Request) -> dict:
+        _require_project(request, project_id)
+        try:
+            return await pm.repo_status(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.post("/api/projects/{project_id}/base")
     async def set_base(project_id: int, request: Request) -> dict:
         _require_project(request, project_id)

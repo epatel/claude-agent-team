@@ -249,6 +249,52 @@ class Workspace:
     def is_dirty(self) -> bool:
         return bool(self._git("status", "--porcelain"))
 
+    def uncommitted_count(self) -> int:
+        """Number of changed/untracked entries in the working tree."""
+        out = self._git("status", "--porcelain")
+        return sum(1 for line in out.splitlines() if line.strip())
+
+    def _resolve_compare_ref(self, base: str) -> str | None:
+        """The first of ``base`` / ``origin/<base>`` that resolves, else None."""
+        for cand in (base, f"origin/{base}"):
+            try:
+                self._git("rev-parse", "--verify", "--quiet", cand)
+                return cand
+            except WorkspaceError:
+                continue
+        return None
+
+    def ahead_behind(self, base: str) -> tuple[int, int] | None:
+        """(ahead, behind) commit counts of HEAD vs ``base``.
+
+        ``ahead`` is commits on HEAD not on base (the session's work); ``behind``
+        is commits on base not on HEAD (base moved on). Returns ``None`` when the
+        base ref can't be resolved (e.g. a fresh repo with no base yet).
+        """
+        ref = self._resolve_compare_ref(base)
+        if ref is None:
+            return None
+        try:
+            out = self._git("rev-list", "--left-right", "--count", f"{ref}...HEAD")
+        except WorkspaceError:
+            return None
+        left, _, right = out.partition("\t")
+        try:
+            return int(right), int(left)  # ahead (HEAD side), behind (base side)
+        except ValueError:
+            return None
+
+    def last_commit(self) -> dict | None:
+        """The current HEAD commit's short sha, subject, and relative time."""
+        try:
+            out = self._git("log", "-1", "--format=%H%x1f%s%x1f%cr")
+        except WorkspaceError:
+            return None  # an empty repo with no commits yet
+        parts = out.split("\x1f")
+        if len(parts) < 3:
+            return None
+        return {"sha": parts[0][:10], "subject": parts[1], "relative": parts[2]}
+
     def commit_all(self, message: str) -> str:
         """Stage everything and commit; return the new HEAD sha."""
         self._git("add", "-A")

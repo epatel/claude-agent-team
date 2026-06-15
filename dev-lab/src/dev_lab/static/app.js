@@ -391,6 +391,7 @@ function setTab(name) {
   $("#panel-agent").hidden = name !== "agent";
   if (name === "chat") scrollBottom();
   if (name === "agent") loadAgentPanel();
+  if (name === "repo") loadRepoStatus(state.activeId);
 }
 document.querySelectorAll("#head-tabs .tab").forEach((t) => {
   t.addEventListener("click", () => setTab(t.dataset.tab));
@@ -452,6 +453,83 @@ async function loadBaseBranches(id) {
     basePicker.hidden = false;
   } catch {
     /* leave the picker hidden if branches can't be fetched */
+  }
+}
+
+/* ---------- repo tab: working-tree state summary ---------- */
+async function loadRepoStatus(id) {
+  const el = $("#repo-summary");
+  try {
+    const s = await api(`/api/projects/${id}/status`);
+    if (state.activeId !== id) return;  // user switched projects mid-fetch
+    renderRepoStatus(s);
+    el.hidden = false;
+  } catch {
+    el.hidden = true;  // broken/missing clone — just hide the summary
+  }
+}
+function refreshRepoStatusIfOpen() {
+  if (state.activeId != null && !$("#panel-repo").hidden) loadRepoStatus(state.activeId);
+}
+function repoStat(label, valueNode) {
+  const row = document.createElement("div");
+  row.className = "repo-stat";
+  const k = document.createElement("span");
+  k.className = "repo-stat-k";
+  k.textContent = label;
+  const v = document.createElement("span");
+  v.className = "repo-stat-v";
+  if (typeof valueNode === "string") v.textContent = valueNode;
+  else v.appendChild(valueNode);
+  row.append(k, v);
+  return row;
+}
+function renderRepoStatus(s) {
+  const el = $("#repo-summary");
+  el.innerHTML = "";
+  // branch → base
+  const branchWrap = document.createElement("span");
+  const br = document.createElement("span");
+  br.className = "repo-branch";
+  br.textContent = s.branch || "—";
+  branchWrap.appendChild(br);
+  if (s.base && s.base !== s.branch) {
+    const base = document.createElement("span");
+    base.className = "repo-base";
+    base.textContent = " → " + s.base;
+    branchWrap.appendChild(base);
+  }
+  el.appendChild(repoStat("branch", branchWrap));
+  // working tree clean/dirty
+  const tree = document.createElement("span");
+  tree.className = "repo-badge " + (s.dirty ? "dirty" : "clean");
+  tree.textContent = s.dirty
+    ? `${s.uncommitted} uncommitted change${s.uncommitted === 1 ? "" : "s"}`
+    : "clean";
+  el.appendChild(repoStat("working tree", tree));
+  // ahead/behind vs base
+  if (s.ahead != null || s.behind != null) {
+    const ab = document.createElement("span");
+    const a = s.ahead || 0, b = s.behind || 0;
+    ab.className = "repo-ab" + (a === 0 && b === 0 ? " synced" : "");
+    ab.textContent = a === 0 && b === 0 ? "in sync with base" : `${a} ahead · ${b} behind`;
+    el.appendChild(repoStat("vs base", ab));
+  }
+  // HEAD commit
+  if (s.last_commit) {
+    const lc = document.createElement("span");
+    lc.className = "repo-commit";
+    const sha = document.createElement("code");
+    sha.className = "repo-sha";
+    sha.textContent = s.last_commit.sha;
+    const subj = document.createElement("span");
+    subj.className = "repo-subj";
+    subj.textContent = " " + s.last_commit.subject;
+    const when = document.createElement("span");
+    when.className = "repo-when";
+    when.textContent = " · " + s.last_commit.relative;
+    lc.append(sha, subj, when);
+    el.appendChild(repoStat("last commit", lc));
   }
 }
 
@@ -1250,7 +1328,7 @@ function handleEvent(e) {
       if (["turn_done", "turn_failed", "turn_stopped"].includes(e.type)) dot.dataset.status = "idle";
     }
   }
-  if (e.type === "projects_changed") { loadProjects(); return; }
+  if (e.type === "projects_changed") { loadProjects(); refreshRepoStatusIfOpen(); return; }
   if (e.type === "clients_changed") { loadClients(); return; }
   if (e.type === "state") { state.projects = e.projects; renderProjects(); return; }
   // transcript only reflects the active project
@@ -1335,6 +1413,7 @@ function handleEvent(e) {
       state.activity = null;
       setStatus("idle");
       $("#stop-btn").hidden = true;
+      refreshRepoStatusIfOpen();  // the turn may have committed — update ahead/dirty
       break;
     }
     case "turn_stopped": {

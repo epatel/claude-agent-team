@@ -732,6 +732,30 @@ class ProjectManager:
             raise ProjectError(f"no such project: {project_id}")
         return Workspace(Path(row["path"]))
 
+    async def repo_status(self, project_id: int) -> dict:
+        """A read-only summary of the project's working tree for the repo tab:
+        current branch, base, dirty/uncommitted count, ahead/behind vs base, and
+        the HEAD commit. ``ahead``/``behind`` are omitted when base can't resolve.
+        """
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            branch = ws.current_branch()
+            base = self._base_branch(ws, project_id)
+            uncommitted = ws.uncommitted_count()
+            ahead_behind = ws.ahead_behind(base)
+            last = ws.last_commit()
+        status = {
+            "branch": branch,
+            "base": base,
+            "dirty": uncommitted > 0,
+            "uncommitted": uncommitted,
+            "last_commit": last,
+        }
+        if ahead_behind is not None:
+            status["ahead"], status["behind"] = ahead_behind
+        return status
+
     def project_root(self, project_id: int) -> Path:
         """A project's working-tree path; its name keys client mirrors."""
         return self._workspace(project_id).path

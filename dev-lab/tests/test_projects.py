@@ -88,6 +88,36 @@ def test_merge_to_base_lands_work(tmp_path):
     assert got == 0  # the base branch now has the merged work
 
 
+def test_repo_status_summary(tmp_path):
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        (Path(cwd) / "feature.txt").write_text("x\n")
+        return AgentResult("ok", 1, False, 0.0, session_id="s")
+
+    pm, _conn, labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+
+    # fresh clone on the base branch: clean, in sync, seed commit at HEAD
+    s0 = asyncio.run(pm.repo_status(pid))
+    assert s0["dirty"] is False and s0["uncommitted"] == 0
+    assert s0["ahead"] == 0 and s0["behind"] == 0
+    assert s0["last_commit"]["subject"] == "init"
+
+    # a turn commits feature.txt on a chat/ branch — now 1 ahead of base
+    asyncio.run(pm.run_turn(pid, "add feature"))
+    s1 = asyncio.run(pm.repo_status(pid))
+    assert s1["branch"].startswith("chat/")
+    assert s1["ahead"] == 1 and s1["behind"] == 0
+    assert s1["dirty"] is False
+
+    # an uncommitted edit shows up as dirty
+    (labs / "src" / "scratch.txt").write_text("wip\n")
+    s2 = asyncio.run(pm.repo_status(pid))
+    assert s2["dirty"] is True and s2["uncommitted"] == 1
+
+
 def test_run_turn_persists_tool_events(tmp_path):
     # Tool calls and their output stream via on_event; run_turn must persist
     # them as ordered typed rows so they survive a reload (not just broadcast).
