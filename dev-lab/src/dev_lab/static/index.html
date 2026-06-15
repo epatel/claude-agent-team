@@ -22,6 +22,15 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="loading">
+  <!-- Boot loader: the only element shown while <body class="loading"> (which
+       hides everything else to avoid a flash of empty UI). checkAuth() clears
+       the class once it knows whether to reveal the login screen or the app. -->
+  <div class="app-loader" role="status" aria-label="loading">
+    <div class="brand">◢◤&nbsp;THE&nbsp;LAB</div>
+    <div class="spinner"></div>
+    <div class="boot-label">preparing…</div>
+  </div>
+
   <!-- LOGIN -->
   <main id="login" class="login" hidden>
     <div class="login-card">

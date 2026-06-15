@@ -32,6 +32,26 @@ body {
 body.loading { visibility: hidden; }
 [hidden] { display: none !important; }
 
+/* boot loader — the one thing visible while the page is preparing. body.loading
+   hides everything (above), so the loader punches back through with its own
+   visibility; it's display:none otherwise, so it never lingers post-boot. */
+.app-loader { display: none; }
+body.loading .app-loader {
+  display: flex; visibility: visible;
+  position: fixed; inset: 0; z-index: 2000;
+  flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  animation: rise .4s ease both;
+}
+.app-loader .spinner {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+.app-loader .boot-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--faint);
+}
+
 button {
   font-family: var(--mono);
   font-size: 12px;
