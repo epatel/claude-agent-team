@@ -19,6 +19,7 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
+    StreamEvent,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -352,6 +353,12 @@ def build_agent_options(
         resume=resume,
         skills="all",
         setting_sources=["project"],
+        # Stream partial messages so assistant text types out token-by-token
+        # (as `agent_delta` events) instead of landing as whole blocks at the
+        # end of each step. Additive: complete AssistantMessage/UserMessage/
+        # ResultMessage still arrive, so tool calls, results, and the summary
+        # are unaffected.
+        include_partial_messages=True,
     )
 
 
@@ -373,8 +380,9 @@ async def run_task(
     Uses ``bypassPermissions`` so the unattended lab does not block on approval
     prompts; the tool set and ``cwd`` bound what the agent can touch. ``resume``
     continues a prior session. If ``on_event`` is given, assistant text streams
-    as ``{"type": "agent_message", ...}`` and tool calls as
-    ``{"type": "tool_use", ...}``.
+    live token-by-token as ``{"type": "agent_delta", ...}`` and once more per
+    completed block as ``{"type": "agent_message", ...}``; tool calls arrive as
+    ``{"type": "tool_use", ...}`` and their output as ``{"type": "tool_result", ...}``.
     """
     options = build_agent_options(
         cwd=cwd, model=model, max_turns=max_turns, effort=effort,
@@ -388,12 +396,36 @@ async def run_task(
     is_error = False
     cost: float | None = None
     session_id: str | None = None
+    streamed_text = False  # have we emitted any agent_delta this turn?
 
     async for message in query(prompt=instruction, options=options):
-        if isinstance(message, AssistantMessage):
+        if isinstance(message, StreamEvent):
+            # Partial-message stream: forward assistant text token-by-token so
+            # the reply types out live instead of arriving as whole blocks.
+            # Skip subagent streams (parent_tool_use_id set) and non-text deltas
+            # (tool-input JSON, thinking) — the complete blocks handle those.
+            if on_event is None or message.parent_tool_use_id is not None:
+                continue
+            ev = message.event
+            etype = ev.get("type")
+            if etype == "content_block_start" and (ev.get("content_block") or {}).get(
+                "type"
+            ) == "text" and streamed_text:
+                # A new text block after earlier text — restore the paragraph
+                # gap the completed-block path joins with.
+                await on_event({"type": "agent_delta", "text": "\n\n"})
+            elif etype == "content_block_delta":
+                delta = ev.get("delta") or {}
+                if delta.get("type") == "text_delta" and delta.get("text"):
+                    streamed_text = True
+                    await on_event({"type": "agent_delta", "text": delta["text"]})
+        elif isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
                     summary_parts.append(block.text)
+                    # agent_message carries the completed block (CLI surfaces +
+                    # any non-streaming consumer); the web console renders from
+                    # the agent_delta stream above and ignores this.
                     if on_event is not None:
                         await on_event({"type": "agent_message", "text": block.text})
                 elif isinstance(block, ToolUseBlock) and on_event is not None:

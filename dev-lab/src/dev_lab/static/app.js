@@ -1232,6 +1232,7 @@ function startAssistant() {
   state.assistantBody = body;
   state.toolDetails = {};  // tool_use_id -> detail element, for pairing results
   state.text = "";
+  state.streamed = false;  // set once agent_delta tokens start arriving
   scrollBottom();
 }
 
@@ -1289,7 +1290,18 @@ function handleEvent(e) {
       scrollBottom();
       break;
     }
+    case "agent_delta":
+      // live token stream — types the reply out as it's generated
+      if (!state.assistantBody) startAssistant();
+      state.streamed = true;
+      state.text += e.text || "";
+      if (state.assistantBody) renderMarkdown(state.assistantBody, state.text, "");
+      scrollBottom();
+      break;
     case "agent_message":
+      // The completed text block. When agent_delta already streamed it live,
+      // skip to avoid doubling; otherwise (no partial stream) render it here.
+      if (state.streamed) break;
       if (!state.assistantBody) startAssistant();
       state.text += (e.text || "") + "\n\n";
       if (state.assistantBody) renderMarkdown(state.assistantBody, state.text, "");
