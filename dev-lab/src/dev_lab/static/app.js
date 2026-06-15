@@ -1074,8 +1074,85 @@ function attachToolResult(detail, content, isError) {
   if (!detail) return;
   const out = document.createElement("pre");
   out.className = "tool-io tool-out" + (isError ? " tool-err" : "");
-  out.textContent = content || "(no output)";
+  out.appendChild(ansiToFragment(content || "(no output)"));
   detail.appendChild(out);
+}
+
+// 16-colour ANSI palette (Nord-ish, tuned for the dark panel). Index 0-7 are
+// the normal colours, 8-15 the bright variants.
+const ANSI16 = [
+  "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
+  "#677088", "#d08770", "#b5d39a", "#f0d399", "#8fa8cc", "#c295bd", "#8fbcbb", "#eceff4",
+];
+
+function ansi256(n) {
+  n |= 0;
+  if (n < 16) return ANSI16[n];
+  if (n >= 232) { const v = 8 + (n - 232) * 10; return `rgb(${v},${v},${v})`; }
+  n -= 16;
+  const step = [0, 95, 135, 175, 215, 255];
+  return `rgb(${step[Math.floor(n / 36) % 6]},${step[Math.floor(n / 6) % 6]},${step[n % 6]})`;
+}
+
+// Apply one SGR (Select Graphic Rendition) escape's parameters to a style state.
+function applySGR(style, params) {
+  const codes = params === "" ? [0] : params.split(";").map((x) => parseInt(x, 10) || 0);
+  const s = { ...style };
+  for (let i = 0; i < codes.length; i++) {
+    const c = codes[i];
+    if (c === 0) { for (const k in s) delete s[k]; }
+    else if (c === 1) s.bold = true;
+    else if (c === 22) s.bold = false;
+    else if (c === 3) s.italic = true;
+    else if (c === 23) s.italic = false;
+    else if (c === 4) s.underline = true;
+    else if (c === 24) s.underline = false;
+    else if (c === 39) delete s.fg;
+    else if (c === 49) delete s.bg;
+    else if (c >= 30 && c <= 37) s.fg = ANSI16[c - 30];
+    else if (c >= 90 && c <= 97) s.fg = ANSI16[c - 90 + 8];
+    else if (c >= 40 && c <= 47) s.bg = ANSI16[c - 40];
+    else if (c >= 100 && c <= 107) s.bg = ANSI16[c - 100 + 8];
+    else if (c === 38 || c === 48) {
+      const tgt = c === 38 ? "fg" : "bg";
+      if (codes[i + 1] === 5) { s[tgt] = ansi256(codes[i + 2]); i += 2; }
+      else if (codes[i + 1] === 2) { s[tgt] = `rgb(${codes[i + 2] || 0},${codes[i + 3] || 0},${codes[i + 4] || 0})`; i += 4; }
+    }
+  }
+  return s;
+}
+
+// Render text containing ANSI escape sequences as coloured DOM nodes. Built with
+// textContent (never innerHTML) so the untrusted tool output can't inject HTML.
+// SGR (…m) sets colour/weight; other CSI sequences (cursor moves, clears) are
+// stripped. Plain text with no escapes returns a bare text node.
+function ansiToFragment(text) {
+  const frag = document.createDocumentFragment();
+  if (text.indexOf("\x1b") === -1) {
+    frag.appendChild(document.createTextNode(text));
+    return frag;
+  }
+  // eslint-disable-next-line no-control-regex
+  const re = /\x1b\[([0-9;]*)m|\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+  let last = 0, m, style = {};
+  const emit = (str) => {
+    if (!str) return;
+    const span = document.createElement("span");
+    if (style.fg) span.style.color = style.fg;
+    if (style.bg) span.style.background = style.bg;
+    if (style.bold) span.style.fontWeight = "600";
+    if (style.italic) span.style.fontStyle = "italic";
+    if (style.underline) span.style.textDecoration = "underline";
+    span.textContent = str;
+    frag.appendChild(span);
+  };
+  while ((m = re.exec(text)) !== null) {
+    emit(text.slice(last, m.index));
+    last = re.lastIndex;
+    if (m[1] !== undefined) style = applySGR(style, m[1]);  // an SGR colour command
+  }
+  emit(text.slice(last));
+  return frag;
 }
 
 function parseMeta(meta) {
