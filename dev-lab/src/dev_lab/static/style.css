@@ -411,6 +411,24 @@ input:focus, textarea:focus {
   background: var(--panel); color: var(--muted);
 }
 .commit-chip { color: var(--accent); border-color: rgba(190,242,100,.25); }
+/* clickable tool chip — tap to expand its input/output detail */
+button.tool-chip-btn {
+  cursor: pointer; text-transform: none;
+  transition: border-color .15s, background .15s, color .15s;
+}
+button.tool-chip-btn::before { content: "▸ "; color: var(--muted); }
+button.tool-chip-btn.open::before { content: "▾ "; }
+button.tool-chip-btn:hover { border-color: var(--accent); color: var(--text); }
+/* expanded detail drops to its own full-width line inside the flex activity bar */
+.tool-detail { flex: 0 0 100%; margin: 2px 0 4px; }
+.tool-io {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.45;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; margin: 0 0 4px; max-height: 320px;
+  overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--muted);
+}
+.tool-io.tool-out { color: var(--text); border-color: var(--accent-dim); }
+.tool-io.tool-err { color: var(--bad); border-color: rgba(248,113,113,.3); }
 button.commit-link {
   cursor: pointer; text-transform: none; letter-spacing: .02em;
   background: var(--panel); transition: border-color .15s, background .15s;

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 
@@ -85,6 +86,42 @@ def test_merge_to_base_lands_work(tmp_path):
         ["git", "-C", str(clone), "cat-file", "-e", f"{base}:feature.txt"]
     ).returncode
     assert got == 0  # the base branch now has the merged work
+
+
+def test_run_turn_persists_tool_events(tmp_path):
+    # Tool calls and their output stream via on_event; run_turn must persist
+    # them as ordered typed rows so they survive a reload (not just broadcast).
+    src = tmp_path / "src"
+    _src_repo(src)
+
+    async def fake(message, *, cwd, model, resume=None, on_event=None, extensions=None):
+        await on_event(
+            {"type": "tool_use", "id": "tu_1", "name": "Read",
+             "input": {"file_path": "README.md"}}
+        )
+        await on_event(
+            {"type": "tool_result", "tool_use_id": "tu_1",
+             "content": "seed", "is_error": False}
+        )
+        return AgentResult("done", 1, False, 0.0, session_id="s")
+
+    pm, conn, _labs = _pm(tmp_path, run_task=fake)
+    pid = pm.create(str(src))["id"]
+    asyncio.run(pm.run_turn(pid, "look"))
+
+    rows = [dict(m) for m in db.list_messages(conn, pid)]
+    assert [(r["role"], r["kind"]) for r in rows] == [
+        ("user", "text"),
+        ("assistant", "tool_use"),
+        ("assistant", "tool_result"),
+        ("assistant", "text"),
+    ]
+    assert rows[1]["content"] == "Read"
+    tu = json.loads(rows[1]["meta"])
+    assert tu["id"] == "tu_1" and tu["input"]["file_path"] == "README.md"
+    tr = json.loads(rows[2]["meta"])
+    assert tr["tool_use_id"] == "tu_1" and tr["content"] == "seed" and tr["is_error"] is False
+    assert rows[3]["content"] == "done"  # final assistant summary closes the turn
 
 
 def test_merge_without_work_errors(tmp_path):

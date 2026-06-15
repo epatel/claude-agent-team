@@ -632,7 +632,13 @@ def build_app(
     async def messages(project_id: int, request: Request) -> list[dict]:
         _require_project(request, project_id)
         return [
-            {"role": m["role"], "content": m["content"]} for m in db.list_messages(conn, project_id)
+            {
+                "role": m["role"],
+                "content": m["content"],
+                "kind": m["kind"],
+                "meta": m["meta"],  # JSON string or None; the client parses it
+            }
+            for m in db.list_messages(conn, project_id)
         ]
 
     @app.post("/api/projects/{project_id}/clear")

@@ -1038,11 +1038,96 @@ function toolLabel(e) {
   return (e.name || "tool") + (hint ? "  " + String(hint).slice(0, 80) : "");
 }
 
+function prettyInput(input) {
+  if (input == null) return "";
+  try { return JSON.stringify(input, null, 2); } catch { return String(input); }
+}
+
+// A clickable tool chip with a collapsed detail panel (input now, output once
+// its result arrives). Lives in the assistant turn's `.activity` bar; the panel
+// has flex-basis:100% so expanding it drops to a full-width line below the chip.
+// Returns the detail element so the matching tool_result can append its output.
+function appendToolChip(activity, name, input, id) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "tool-chip tool-chip-btn";
+  chip.textContent = toolLabel({ name, input });
+  const detail = document.createElement("div");
+  detail.className = "tool-detail";
+  detail.hidden = true;
+  if (id) detail.dataset.toolId = id;
+  const inPre = document.createElement("pre");
+  inPre.className = "tool-io";
+  inPre.textContent = prettyInput(input);
+  detail.appendChild(inPre);
+  chip.addEventListener("click", () => {
+    detail.hidden = !detail.hidden;
+    chip.classList.toggle("open", !detail.hidden);
+    scrollBottom();
+  });
+  activity.appendChild(chip);
+  activity.appendChild(detail);
+  return detail;
+}
+
+function attachToolResult(detail, content, isError) {
+  if (!detail) return;
+  const out = document.createElement("pre");
+  out.className = "tool-io tool-out" + (isError ? " tool-err" : "");
+  out.textContent = content || "(no output)";
+  detail.appendChild(out);
+}
+
+function parseMeta(meta) {
+  if (meta == null) return {};
+  if (typeof meta === "object") return meta;
+  try { return JSON.parse(meta); } catch { return {}; }
+}
+
 async function loadTranscript(id) {
   const t = $("#transcript");
   t.innerHTML = "";
   const msgs = await api(`/api/projects/${id}/messages`);
-  for (const m of msgs) addMessage(m.role, m.content);
+  // Rebuild the typed transcript: text rows are bubbles; tool_use/tool_result
+  // rows reconstruct the chips (with output) of the assistant turn they belong
+  // to. Tool rows sit between a user row and the next assistant text row.
+  let activity = null;          // current assistant turn's chip bar, or null
+  const details = {};           // tool_use_id -> detail element, current turn
+  for (const m of msgs) {
+    const kind = m.kind || "text";
+    if (kind === "tool_use") {
+      if (!activity) activity = newAssistantTurn();
+      const meta = parseMeta(m.meta);
+      const detail = appendToolChip(activity, m.content, meta.input, meta.id);
+      if (meta.id) details[meta.id] = detail;
+    } else if (kind === "tool_result") {
+      const meta = parseMeta(m.meta);
+      attachToolResult(details[meta.tool_use_id], meta.content, meta.is_error);
+    } else if (m.role === "assistant" && activity) {
+      // The text that closes the open tool-using turn: fill its body bubble.
+      const body = document.createElement("div");
+      body.className = "msg-body";
+      activity.parentElement.appendChild(body);
+      renderMarkdown(body, m.content, "");
+      activity = null;
+    } else {
+      activity = null;
+      addMessage(m.role, m.content);
+    }
+  }
+  scrollBottom();
+}
+
+// An assistant message div with an empty `.activity` chip bar; returns the bar.
+function newAssistantTurn() {
+  const t = $("#transcript");
+  const div = document.createElement("div");
+  div.className = "msg assistant";
+  const act = document.createElement("div");
+  act.className = "activity";
+  div.appendChild(act);
+  t.appendChild(div);
+  return act;
 }
 
 function commitChip(e) {
@@ -1068,6 +1153,7 @@ function startAssistant() {
   t.appendChild(div);
   state.activity = act;
   state.assistantBody = body;
+  state.toolDetails = {};  // tool_use_id -> detail element, for pairing results
   state.text = "";
   scrollBottom();
 }
@@ -1101,11 +1187,17 @@ function handleEvent(e) {
     case "tool_use":
       if (!state.activity) startAssistant();
       if (state.activity) {
-        const chip = document.createElement("span");
-        chip.className = "tool-chip";
-        chip.textContent = "⤷ " + toolLabel(e);
-        state.activity.appendChild(chip);
+        const detail = appendToolChip(state.activity, e.name, e.input, e.id);
+        if (e.id) state.toolDetails[e.id] = detail;
         scrollBottom();
+      }
+      break;
+    case "tool_result":
+      // The output for an earlier tool_use; attach it under that chip. Ignore
+      // if we have no live turn (transcript was rebuilt mid-turn) — the reload
+      // path reconstructs it from persisted rows instead.
+      if (state.toolDetails) {
+        attachToolResult(state.toolDetails[e.tool_use_id], e.content, e.is_error);
       }
       break;
     case "tool_image": {

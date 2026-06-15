@@ -827,8 +827,35 @@ class ProjectManager:
         """Run one chat turn for a project: persist message, run, persist state."""
         session = self.open(project_id)
         db.record_message(self.conn, project_id=project_id, role="user", content=message)
+
+        async def persisting_event(event: dict) -> None:
+            # Persist tool calls and their output as ordered transcript rows so
+            # they survive a reload. Autoincrement ids interleave them between
+            # the user row above and the final assistant summary below, matching
+            # the order they streamed in. Text blocks still aren't persisted
+            # per-chunk; the aggregated summary is recorded after the turn.
+            kind = event.get("type")
+            if kind == "tool_use":
+                db.record_message(
+                    self.conn, project_id=project_id, role="assistant",
+                    content=str(event.get("name") or "tool"), kind="tool_use",
+                    meta=json.dumps({"id": event.get("id"), "input": event.get("input")}),
+                )
+            elif kind == "tool_result":
+                db.record_message(
+                    self.conn, project_id=project_id, role="assistant",
+                    content="", kind="tool_result",
+                    meta=json.dumps({
+                        "tool_use_id": event.get("tool_use_id"),
+                        "content": event.get("content"),
+                        "is_error": event.get("is_error"),
+                    }),
+                )
+            if on_event is not None:
+                await on_event(event)
+
         async with self.lock(project_id):
-            result = await session.run_turn(message, on_event=on_event)
+            result = await session.run_turn(message, on_event=persisting_event)
         db.update_project(
             self.conn, project_id, branch=session.branch, last_session_id=session.session_id
         )

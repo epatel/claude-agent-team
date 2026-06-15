@@ -20,7 +20,9 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ResultMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
     create_sdk_mcp_server,
     query,
     tool,
@@ -28,6 +30,31 @@ from claude_agent_sdk import (
 
 if TYPE_CHECKING:
     from .clients import ClientRegistry
+
+# Cap how much tool output we stream/persist per call — file reads and command
+# output can be huge, and the chat transcript (and its SQLite rows) shouldn't
+# balloon. The agent still sees the full result; only the console copy is capped.
+_TOOL_RESULT_CAP = 16_000
+
+
+def _tool_result_text(content: object) -> str:
+    """Flatten an SDK ToolResultBlock's content to capped display text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        text = content
+    else:
+        parts: list[str] = []
+        for blk in content:  # list of content blocks (text, image, ...)
+            if isinstance(blk, dict):
+                parts.append(str(blk.get("text", "")) if blk.get("type") == "text"
+                             else f"[{blk.get('type', 'content')}]")
+            else:
+                parts.append(str(blk))
+        text = "\n".join(p for p in parts if p)
+    if len(text) > _TOOL_RESULT_CAP:
+        text = text[:_TOOL_RESULT_CAP] + "\n… [truncated]"
+    return text
 
 # File + search + shell, scoped to the workspace via ``cwd``.
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
@@ -370,7 +397,24 @@ async def run_task(
                     if on_event is not None:
                         await on_event({"type": "agent_message", "text": block.text})
                 elif isinstance(block, ToolUseBlock) and on_event is not None:
-                    await on_event({"type": "tool_use", "name": block.name, "input": block.input})
+                    await on_event({
+                        "type": "tool_use", "id": block.id,
+                        "name": block.name, "input": block.input,
+                    })
+        elif isinstance(message, UserMessage) and on_event is not None:
+            # The SDK reports tool OUTPUT back as a UserMessage carrying
+            # ToolResultBlocks — surface it so the console can pair each result
+            # with its call (tool_use_id) and let the user expand it on demand.
+            content = message.content
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, ToolResultBlock):
+                        await on_event({
+                            "type": "tool_result",
+                            "tool_use_id": block.tool_use_id,
+                            "content": _tool_result_text(block.content),
+                            "is_error": bool(block.is_error),
+                        })
         elif isinstance(message, ResultMessage):
             num_turns = message.num_turns
             is_error = message.is_error

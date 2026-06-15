@@ -133,6 +133,19 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE projects ADD COLUMN mcp_servers TEXT;
         """,
     ),
+    (
+        10,
+        # Typed transcript: tool calls and their output now persist in the
+        # message log alongside user/assistant text, so they survive a page
+        # reload (the console used to stream tool chips live but never store
+        # them). `kind` discriminates the row ('text' | 'tool_use' |
+        # 'tool_result'); `meta` is row-specific JSON (tool name, input,
+        # tool_use_id, output). Existing rows default to plain 'text'.
+        """
+        ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';
+        ALTER TABLE messages ADD COLUMN meta TEXT;
+        """,
+    ),
 ]
 
 
@@ -289,10 +302,24 @@ def update_project(
 
 # --- Messages -------------------------------------------------------------
 
-def record_message(conn: sqlite3.Connection, *, project_id: int, role: str, content: str) -> int:
+def record_message(
+    conn: sqlite3.Connection,
+    *,
+    project_id: int,
+    role: str,
+    content: str,
+    kind: str = "text",
+    meta: str | None = None,
+) -> int:
+    """Append one transcript row.
+
+    ``kind`` is 'text' (default), 'tool_use', or 'tool_result'; ``meta`` is the
+    row-specific JSON payload for tool rows (None for plain text).
+    """
     cur = conn.execute(
-        "INSERT INTO messages (project_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-        (project_id, role, content, time.time()),
+        "INSERT INTO messages (project_id, role, content, kind, meta, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (project_id, role, content, kind, meta, time.time()),
     )
     conn.commit()
     return int(cur.lastrowid)
