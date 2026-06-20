@@ -665,6 +665,15 @@ def build_app(
         except (ProjectError, WorkspaceError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.get("/api/projects/{project_id}/diff")
+    async def base_diff(project_id: int, request: Request) -> dict:
+        """The full patch the chat branch adds on top of base (base...HEAD)."""
+        _require_project(request, project_id)
+        try:
+            return await pm.base_diff(project_id)
+        except (ProjectError, WorkspaceError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.get("/api/projects/{project_id}/tree")
     async def project_tree(project_id: int, request: Request, path: str = "") -> dict:
         _require_project(request, project_id)

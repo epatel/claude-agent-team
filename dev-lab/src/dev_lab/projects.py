@@ -745,12 +745,16 @@ class ProjectManager:
             uncommitted = ws.uncommitted_count()
             ahead_behind = ws.ahead_behind(base)
             last = ws.last_commit()
+            remote = ws.remote_url()
         status = {
             "branch": branch,
             "base": base,
             "dirty": uncommitted > 0,
             "uncommitted": uncommitted,
             "last_commit": last,
+            # Redact any embedded token — the clone's origin may carry the
+            # project's GitHub credential; never surface it to the browser.
+            "remote": _strip_credentials(remote.strip()) if remote else None,
         }
         if ahead_behind is not None:
             status["ahead"], status["behind"] = ahead_behind
@@ -768,6 +772,21 @@ class ProjectManager:
             subject = ws.commit_subject(sha)
             diff = ws.commit_diff(sha)
         return {"sha": sha, "subject": subject, "diff": diff}
+
+    async def base_diff(self, project_id: int) -> dict:
+        """The full patch the chat branch adds on top of its base branch.
+
+        Returns ``branch``, ``base``, and the unified ``diff`` (``base...HEAD``).
+        ``diff`` is empty when the branch is in sync with base or base can't
+        resolve — the caller renders that as "no changes vs base".
+        """
+        ws = self._workspace(project_id)
+        async with self.lock(project_id):
+            ws.ensure_repo()
+            branch = ws.current_branch()
+            base = self._base_branch(ws, project_id)
+            diff = ws.base_diff(base)
+        return {"branch": branch, "base": base, "diff": diff}
 
     async def list_tree(self, project_id: int, path: str = "") -> dict:
         """One directory level of a project's working tree (repo browser).

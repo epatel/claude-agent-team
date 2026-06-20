@@ -104,6 +104,7 @@ def test_repo_status_summary(tmp_path):
     assert s0["dirty"] is False and s0["uncommitted"] == 0
     assert s0["ahead"] == 0 and s0["behind"] == 0
     assert s0["last_commit"]["subject"] == "init"
+    assert s0["remote"] == str(src)  # origin surfaced for the repo tab
 
     # a turn commits feature.txt on a chat/ branch — now 1 ahead of base
     asyncio.run(pm.run_turn(pid, "add feature"))

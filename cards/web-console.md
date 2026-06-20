@@ -141,7 +141,12 @@ Run it: `dev-lab web --labs-dir ~/labs --host --port` (default port 8770).
   explicitly.
 - **Inspecting work.** Each committed turn shows a **view-diff** button (the
   commit chip) that opens `GET /api/projects/{id}/commits/{sha}/diff` in a modal
-  (`diff.js` renders the unified patch as collapsible per-file blocks). A
+  (`diff.js` renders the unified patch as collapsible per-file blocks). The repo
+  tab also has a **view diff vs base** action that opens the whole patch the
+  chat branch adds on top of base (`GET /api/projects/{id}/diff`, the three-dot
+  `base...HEAD` diff so it shows only what the branch is *ahead* by, not what
+  base moved on by) in the same modal; an in-sync branch renders "no changes vs
+  base". A
   **browse files** header button opens a read-only repo browser backed by
   `GET …/tree?path=` (lazy, one dir level) and `GET …/file?path=` (text/markdown,
   binary + 512 KB guards; `.git` hidden, path-traversal refused). Image files

@@ -315,6 +315,7 @@ input:focus, textarea:focus {
 .repo-stat-v { flex: 1; min-width: 0; color: var(--text); }
 .repo-branch { font-family: var(--mono); color: var(--accent); }
 .repo-base { font-family: var(--mono); color: var(--muted); }
+.repo-remote { font-family: var(--mono); font-size: 11.5px; color: var(--muted); word-break: break-all; }
 .repo-badge {
   font-family: var(--mono); font-size: 11px; padding: 1px 8px; border-radius: 5px;
   border: 1px solid var(--line);

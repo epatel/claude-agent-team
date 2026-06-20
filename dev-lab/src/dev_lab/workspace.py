@@ -323,6 +323,20 @@ class Workspace:
         self._require_sha(sha)
         return self._git("show", "--no-color", "--format=", sha)
 
+    def base_diff(self, base: str) -> str:
+        """Unified patch of everything HEAD adds on top of ``base``.
+
+        Uses the three-dot form ``base...HEAD`` so the diff is taken against the
+        merge-base — i.e. only the commits this branch is *ahead* by, not the
+        commits ``base`` moved on by since the branch was cut. Returns ``""``
+        when the base ref can't resolve (fresh repo with no base yet) or when
+        the branch has nothing on top of base.
+        """
+        ref = self._resolve_compare_ref(base)
+        if ref is None:
+            return ""
+        return self._git("diff", "--no-color", f"{ref}...HEAD")
+
     def _safe_path(self, rel: str) -> Path:
         """Resolve a repo-relative path, refusing anything outside the clone."""
         rel = (rel or "").strip().lstrip("/")

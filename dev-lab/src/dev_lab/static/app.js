@@ -363,6 +363,7 @@ async function openProject(id) {
   $("#pull-btn").hidden = false;
   $("#push-btn").hidden = false;
   $("#reset-btn").hidden = false;
+  $("#base-diff-btn").hidden = false;
   $("#rebase-btn").hidden = false;
   $("#merge-btn").hidden = false;
   $("#remove-project-btn").hidden = false;
@@ -500,6 +501,13 @@ function renderRepoStatus(s) {
     branchWrap.appendChild(base);
   }
   el.appendChild(repoStat("branch", branchWrap));
+  // remote origin (token already redacted server-side); omitted for local-only repos
+  if (s.remote) {
+    const remote = document.createElement("span");
+    remote.className = "repo-remote";
+    remote.textContent = s.remote;
+    el.appendChild(repoStat("remote", remote));
+  }
   // working tree clean/dirty
   const tree = document.createElement("span");
   tree.className = "repo-badge " + (s.dirty ? "dirty" : "clean");
@@ -1549,14 +1557,47 @@ document.querySelectorAll("[data-close]").forEach((btn) => {
 });
 
 async function openDiff(projectId, sha) {
+  openDiffModal(sha.slice(0, 10), `/api/projects/${projectId}/commits/${sha}/diff`, (r) =>
+    sha.slice(0, 10) + (r.subject ? "  ·  " + r.subject : ""),
+  );
+}
+
+// "view diff vs base" on the repo tab: the whole patch this chat branch adds on
+// top of base (base...HEAD). Empty when the branch is in sync with base.
+async function openBaseDiff(projectId) {
+  openDiffModal(
+    "diff vs base",
+    `/api/projects/${projectId}/diff`,
+    (r) => `${r.branch || "?"} vs ${r.base || "base"}`,
+    "no changes vs base — this branch is in sync",
+  );
+}
+
+// Shared diff modal: fetch a {diff, …} payload from `url`, title it via
+// `titleFor(payload)`, and render it with DiffViewer. When the diff is empty,
+// DiffViewer shows its own per-commit message unless `emptyMsg` overrides it.
+async function openDiffModal(loadingTitle, url, titleFor, emptyMsg) {
   const body = $("#diff-body");
-  $("#diff-title").textContent = sha.slice(0, 10);
+  const collapseAll = $("#diff-collapse-all");
+  collapseAll.hidden = true;  // nothing rendered yet
+  $("#diff-title").textContent = loadingTitle;
   body.innerHTML = '<div class="modal-loading">loading diff…</div>';
   $("#diff-dialog").showModal();
   try {
-    const r = await api(`/api/projects/${projectId}/commits/${sha}/diff`);
-    $("#diff-title").textContent = sha.slice(0, 10) + (r.subject ? "  ·  " + r.subject : "");
+    const r = await api(url);
+    $("#diff-title").textContent = titleFor(r);
+    if (emptyMsg && !(r.diff || "").trim()) {
+      body.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "diff-empty";
+      p.textContent = emptyMsg;
+      body.appendChild(p);
+      return;
+    }
     DiffViewer.render(r.diff, body);
+    // Only meaningful once there are file blocks to fold.
+    collapseAll.hidden = body.querySelector(".diff-file") == null;
+    syncCollapseAllLabel();
   } catch (err) {
     body.innerHTML = "";
     const p = document.createElement("p");
@@ -1565,6 +1606,31 @@ async function openDiff(projectId, sha) {
     body.appendChild(p);
   }
 }
+
+// The button reads as "collapse all" when anything is expanded, and "expand
+// all" once everything is folded — so one button covers both directions.
+function syncCollapseAllLabel() {
+  const files = $("#diff-body").querySelectorAll(".diff-file");
+  const anyOpen = [...files].some((f) => !f.classList.contains("collapsed"));
+  $("#diff-collapse-all").textContent = anyOpen ? "collapse all" : "expand all";
+}
+
+$("#diff-collapse-all").addEventListener("click", () => {
+  const files = $("#diff-body").querySelectorAll(".diff-file");
+  const collapse = [...files].some((f) => !f.classList.contains("collapsed"));
+  files.forEach((f) => f.classList.toggle("collapsed", collapse));
+  syncCollapseAllLabel();
+});
+
+// A click on a single file header can flip the all/none state, so keep the
+// button label honest (DiffViewer's headers toggle `.collapsed` themselves).
+$("#diff-body").addEventListener("click", (e) => {
+  if (e.target.closest(".diff-file-header")) syncCollapseAllLabel();
+});
+
+$("#base-diff-btn").addEventListener("click", () => {
+  if (state.activeId != null) openBaseDiff(state.activeId);
+});
 
 /* repo browser — lazy one-level-at-a-time tree over the working clone, plus
    tabs for any connected platform client holding a mirror of the project */

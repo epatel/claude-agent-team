@@ -151,6 +151,8 @@
             <button id="reset-btn" class="merge-btn ghost" hidden
               title="Discard ALL uncommitted changes in the working tree (hard reset + remove untracked files). Commits are kept.">reset</button>
             <div class="repo-actions-break" aria-hidden="true"></div>
+            <button id="base-diff-btn" class="merge-btn ghost" hidden
+              title="Show everything this chat branch adds on top of base (the diff base...HEAD)">view diff vs base</button>
             <button id="rebase-btn" class="merge-btn ghost" hidden
               title="Rebase this chat branch onto the base branch — replay the session's commits on top of base's latest. On conflict nothing changes and you can hand resolution to the agent in chat.">rebase on base</button>
             <button id="merge-btn" class="merge-btn ghost" hidden
@@ -257,6 +259,8 @@
   <dialog id="diff-dialog" class="modal">
     <div class="modal-head">
       <span id="diff-title" class="modal-title">diff</span>
+      <button type="button" id="diff-collapse-all" class="merge-btn ghost" hidden
+        title="Collapse or expand every file in this diff">collapse all</button>
       <button type="button" class="modal-close ghost" data-close="diff-dialog">close</button>
     </div>
     <div id="diff-body" class="modal-body diff-body"></div>
