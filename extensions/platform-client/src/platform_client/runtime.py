@@ -206,7 +206,10 @@ class ClientRuntime:
         # Sync the mirror to the source manifest: fetch the delta, delete strays
         # (stray deletion also removes the previous run's artifacts — except
         # paths matching ``preserve``, which survive between runs).
-        need, delete = manifest.delta(source, manifest.scan(root))
+        # ``scan`` sha256-hashes the whole tree; run it off the event loop so a
+        # large mirror can't starve the WebSocket keepalive (a >ping_timeout
+        # block shows up as a 1011 "keepalive ping timeout" mid-task).
+        need, delete = manifest.delta(source, await asyncio.to_thread(manifest.scan, root))
         if preserve:
             delete = [
                 p for p in delete
@@ -246,11 +249,12 @@ class ClientRuntime:
         # Pre-run manifest for the changed-report: without preserve the mirror
         # now equals ``source``; with preserve it also holds kept artifacts, so
         # rescan — otherwise untouched artifacts would show as "added" each run.
-        before = manifest.scan(root) if preserve else source
+        before = (await asyncio.to_thread(manifest.scan, root)) if preserve else source
         ok, returncode, stdout, stderr = await asyncio.to_thread(
             _run_command, root, msg["command"], self.command_timeout
         )
-        changed = manifest.changed(before, manifest.scan(root))
+        after = await asyncio.to_thread(manifest.scan, root)
+        changed = manifest.changed(before, after)
         await self._send_result(
             conn, task_id, ok=ok, returncode=returncode, stdout=stdout,
             stderr=stderr, changed=changed,
@@ -262,7 +266,7 @@ class ClientRuntime:
         root = self._mirror_root(msg.get("project"))
         for path in msg.get("paths", []):
             try:
-                data = manifest.read_file(root, path)
+                data = await asyncio.to_thread(manifest.read_file, root, path)
             except (OSError, manifest.PathOutsideRoot) as exc:
                 await conn.send({"type": "file", "task_id": task_id, "path": path,
                                  "data": None, "error": str(exc)})
@@ -280,12 +284,13 @@ class ClientRuntime:
         """Report what this client's mirror of a project holds (no file content)."""
         root = self._mirror_root(msg.get("project"))
         exists = root.is_dir()
+        listing = await asyncio.to_thread(manifest.scan, root) if exists else {}
         await conn.send(
             {
                 "type": "mirror_result",
                 "task_id": msg["task_id"],
                 "exists": exists,
-                "manifest": manifest.scan(root) if exists else {},
+                "manifest": listing,
             }
         )
 
@@ -358,12 +363,20 @@ class _WsConnection:
             # Surface *why* the socket dropped — without this the connect loop
             # only ever reports a generic "closed", hiding proxy frame-size
             # kills (1009), idle/abnormal closes (1006), server errors (1011),
-            # etc. Code 1006 with no reason almost always means a reverse proxy
-            # or load balancer cut the connection (frame too big / idle timeout).
-            close = exc.rcvd or exc.sent
+            # keepalive timeouts, etc. ``rcvd`` = the lab closed us (server-side
+            # keepalive / error); ``sent`` = we closed (our own keepalive).
+            if exc.rcvd is not None:
+                origin, close = "lab(rcvd)", exc.rcvd
+            elif exc.sent is not None:
+                origin, close = "client(sent)", exc.sent
+            else:
+                origin, close = "abnormal(1006)", None
             code = close.code if close else "?"
             reason = (close.reason if close else "") or "(no reason)"
-            print(f"[platform-client] socket closed: code={code} reason={reason}", flush=True)
+            print(
+                f"[platform-client] socket closed by {origin}: code={code} reason={reason}",
+                flush=True,
+            )
             raise ConnectionClosed from exc
 
 
@@ -371,7 +384,13 @@ async def connect_once(url: str, runtime: ClientRuntime) -> None:
     """One connection to the lab's ``/ws/client``; returns when it closes."""
     import websockets
 
-    async with websockets.connect(url, max_size=_WS_MAX_MESSAGE) as ws:
+    # Heavy work (scans, the command) runs off the event loop, so the loop stays
+    # free to answer keepalive pings. ``ping_timeout`` is still widened from the
+    # 20s default as a cushion: a brief loop stall or a slow file transfer should
+    # not be mistaken for a dead peer and dropped as a 1011 mid-task.
+    async with websockets.connect(
+        url, max_size=_WS_MAX_MESSAGE, ping_timeout=90
+    ) as ws:
         await runtime.handle(_WsConnection(ws))
 
 

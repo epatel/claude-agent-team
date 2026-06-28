@@ -180,7 +180,14 @@ def _cmd_web(args) -> int:
     logging.getLogger("dev_lab").info(
         "web console on http://%s:%d (labs=%s)", args.host, args.port, labs
     )
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    # Widen the server-side WebSocket keepalive from uvicorn's 20s default: a
+    # platform client's task work (hashing a synced tree on slow Pi storage) can
+    # briefly stall the event loop, and a 20s ping timeout would drop the client
+    # mid-task with a 1011. The client uses a matching cushion (see runtime.py).
+    uvicorn.run(
+        app, host=args.host, port=args.port, log_level="info",
+        ws_ping_interval=20, ws_ping_timeout=90,
+    )
     return 0
 
 

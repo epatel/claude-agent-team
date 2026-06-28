@@ -382,7 +382,7 @@ class ClientRegistry:
         and the client negotiated chunking; a read error becomes a single
         ``file`` frame with ``data: None`` so the sync fails cleanly."""
         try:
-            data = manifest.read_file(root, path)
+            data = await asyncio.to_thread(manifest.read_file, root, path)
         except (OSError, manifest.PathOutsideRoot) as exc:
             await client.send({"type": "file", "task_id": task_id, "path": path,
                                "data": None, "error": str(exc)})
