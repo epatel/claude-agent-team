@@ -44,6 +44,14 @@ sequenceDiagram
   project tree (default ignores: `.git`, `.venv`, `__pycache__`, …); the client
   requests only changed files, deletes ones that vanished, and keeps the mirror
   warm between runs. Identity of "what ran" is the manifest hash, not a sha.
+- **Chunked file frames** — a file larger than `manifest.FILE_CHUNK_BYTES`
+  (512 KiB) is split into ordered `file_chunk` frames + a `file_end`, in either
+  direction, so no single WebSocket message trips a reverse proxy's size limit
+  (the symptom: a roaming client whose cold first-sync drops mid-task while a
+  warm-mirror client on the LAN is fine). The client announces `chunked_files`
+  in its hello and the lab only splits toward clients that did, so an
+  un-upgraded client keeps getting whole `file` frames. `manifest.file_frames`
+  is the single source for the split; both ends reassemble in arrival order.
 - **Changed-files report** — the client snapshots its mirror manifest before a
   run and diffs after, so generated/modified files are visible per run.
 - **Preserving artifacts** — by default the sync deletes mirror files not in

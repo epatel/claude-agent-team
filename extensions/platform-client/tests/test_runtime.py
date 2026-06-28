@@ -90,6 +90,58 @@ def test_task_syncs_runs_and_reports_changes(tmp_path):
     assert result["changed"]["modified"] == []
 
 
+def test_hello_announces_chunked_files_support(tmp_path):
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+    assert conn.sent[0]["chunked_files"] is True
+
+
+def test_task_reassembles_chunked_file(tmp_path):
+    # a file larger than one chunk, served as the lab would split it
+    blob = b"".join(bytes([i % 256]) for i in range(manifest.FILE_CHUNK_BYTES + 100))
+    digest = hashlib.sha256(blob).hexdigest()
+    task = {
+        "type": "task", "task_id": "t1", "project": "proj",
+        "command": "true", "manifest": {"big.bin": digest},
+    }
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, task])
+    conn.replies["need"] = lambda msg: list(
+        manifest.file_frames("t1", "big.bin", blob)
+    )
+
+    # the served frames really were split, not one whole `file`
+    served = list(manifest.file_frames("t1", "big.bin", blob))
+    assert [f["type"] for f in served[:1]] == ["file_chunk"]
+    assert served[-1]["type"] == "file_end"
+
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    mirror = tmp_path / "mirrors" / "proj"
+    assert (mirror / "big.bin").read_bytes() == blob
+    assert conn.sent[-1]["ok"] is True
+
+
+def test_fetch_chunks_large_files(tmp_path):
+    blob = bytes(manifest.FILE_CHUNK_BYTES + 1)  # one byte past a single chunk
+    mirror = tmp_path / "mirrors" / "proj"
+    mirror.mkdir(parents=True)
+    (mirror / "art.bin").write_bytes(blob)
+
+    fetch = {"type": "fetch", "task_id": "f1", "project": "proj", "paths": ["art.bin"]}
+    conn = FakeConn([{"type": "hello_ok", "name": "mac"}, fetch])
+    asyncio.run(_runtime(tmp_path).handle(conn))
+
+    frames = [m for m in conn.sent if m.get("task_id") == "f1"]
+    kinds = [f["type"] for f in frames]
+    assert "file_chunk" in kinds and "file_end" in kinds
+    # reassembling the chunk payloads reproduces the file
+    rebuilt = b"".join(
+        base64.b64decode(f["data"]) for f in frames if f["type"] == "file_chunk"
+    )
+    assert rebuilt == blob
+    assert frames[-1]["type"] == "fetch_done"
+
+
 def test_warm_mirror_only_fetches_delta_and_deletes_strays(tmp_path):
     mirror = tmp_path / "mirrors" / "proj"
     mirror.mkdir(parents=True)

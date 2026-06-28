@@ -9,7 +9,7 @@ the client's mirror.
 Wire protocol (JSON text frames; the lab owns this contract; ``task_id`` is a
 correlation id — fetches use it too):
 
-  client → lab   {type: "hello", name, platform, capabilities, token?}
+  client → lab   {type: "hello", name, platform, capabilities, token?, chunked_files?}
   lab → client   {type: "hello_ok", name, lab}       # final (deduped) name + the
                                                      # lab's stable id, which the
                                                      # client uses to namespace
@@ -21,6 +21,14 @@ correlation id — fetches use it too):
   lab → client   {type: "fetch", task_id, project, paths}   # pull mirror files back
   client → lab   {type: "file", task_id, path, data}        # same frame, reverse direction
   client → lab   {type: "fetch_done", task_id}
+
+  Large files (> manifest.FILE_CHUNK_BYTES) are sent split, in either direction,
+  so no single WebSocket frame trips a reverse proxy's message-size limit:
+      {type: "file_chunk", task_id, path, seq, data}   # ordered base64 pieces
+      {type: "file_end", task_id, path}                # concatenate, then write
+  The lab only chunks toward a client whose hello set ``chunked_files: true``; an
+  older client keeps receiving whole ``file`` frames. (manifest.file_frames is
+  the single source for this split; both ends reassemble in arrival order.)
   lab → client   {type: "mirror", task_id, project}         # inspect the mirror
   client → lab   {type: "mirror_result", task_id, exists, manifest}
   lab → client   {type: "clean", task_id, project}          # delete the mirror
@@ -61,6 +69,8 @@ class _Fetch:
     future: asyncio.Future
     files: dict[str, bytes] = field(default_factory=dict)
     errors: dict[str, str] = field(default_factory=dict)
+    # Chunk frames accumulate here per path until their ``file_end`` arrives.
+    partial: dict[str, list[bytes]] = field(default_factory=dict)
 
 
 @dataclass
@@ -72,6 +82,9 @@ class _Client:
     # through the tunnel (mcp/mcp_result frames).
     mcp_servers: list[str]
     send: Send
+    # The client understands chunk frames (announced ``chunked_files`` in its
+    # hello); gates whether the lab splits large synced files toward it.
+    chunked_files: bool = False
     tasks: dict[str, _Task] = field(default_factory=dict)
     fetches: dict[str, _Fetch] = field(default_factory=dict)
     # Single-frame request/response exchanges (mirror_result, clean_done).
@@ -107,6 +120,7 @@ class ClientRegistry:
         capabilities: list[dict],
         send: Send,
         mcp_servers: list[str] | None = None,
+        chunked_files: bool = False,
     ) -> str:
         """Add a connected client; a taken name gets a ``_2`` / ``_3`` … suffix."""
         final = name or "client"
@@ -115,7 +129,8 @@ class ClientRegistry:
             final = f"{name}_{n}"
             n += 1
         self._clients[final] = _Client(
-            final, platform, capabilities, list(mcp_servers or []), send
+            final, platform, capabilities, list(mcp_servers or []), send,
+            chunked_files=chunked_files,
         )
         return final
 
@@ -333,7 +348,7 @@ class ClientRegistry:
         elif task is not None:
             if msg.get("type") == "need":
                 for path in msg.get("paths", []):
-                    await client.send(self._file_message(task.root, correlation, path))
+                    await self._send_file(client, correlation, task.root, path)
             elif msg.get("type") == "result" and not task.future.done():
                 task.future.set_result(
                     {
@@ -350,15 +365,29 @@ class ClientRegistry:
                     fetch.errors[msg.get("path", "?")] = str(msg.get("error") or "unreadable")
                 else:
                     fetch.files[msg["path"]] = base64.b64decode(msg["data"])
+            elif msg.get("type") == "file_chunk":
+                fetch.partial.setdefault(msg["path"], []).append(
+                    base64.b64decode(msg["data"])
+                )
+            elif msg.get("type") == "file_end":
+                path = msg["path"]
+                fetch.files[path] = b"".join(fetch.partial.pop(path, []))
             elif msg.get("type") == "fetch_done" and not fetch.future.done():
                 fetch.future.set_result({"files": fetch.files, "errors": fetch.errors})
         # unknown correlation id: finished/timed out — stale traffic is dropped
 
     @staticmethod
-    def _file_message(root: Path, task_id: str, path: str) -> dict:
+    async def _send_file(client: _Client, task_id: str, root: Path, path: str) -> None:
+        """Send one mirror file to ``client``, split into chunks when it's large
+        and the client negotiated chunking; a read error becomes a single
+        ``file`` frame with ``data: None`` so the sync fails cleanly."""
         try:
-            data = base64.b64encode(manifest.read_file(root, path)).decode()
+            data = manifest.read_file(root, path)
         except (OSError, manifest.PathOutsideRoot) as exc:
-            return {"type": "file", "task_id": task_id, "path": path, "data": None,
-                    "error": str(exc)}
-        return {"type": "file", "task_id": task_id, "path": path, "data": data}
+            await client.send({"type": "file", "task_id": task_id, "path": path,
+                               "data": None, "error": str(exc)})
+            return
+        for frame in manifest.file_frames(
+            task_id, path, data, chunk=client.chunked_files
+        ):
+            await client.send(frame)

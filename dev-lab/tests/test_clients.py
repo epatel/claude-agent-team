@@ -192,6 +192,91 @@ def test_fetch_collects_files_and_errors(tmp_path):
     assert out["errors"] == {"bad.txt": "missing"}
 
 
+def test_chunks_large_files_toward_a_chunk_capable_client(tmp_path):
+    from platform_client import manifest
+
+    blob = bytes((i * 7) % 256 for i in range(manifest.FILE_CHUNK_BYTES + 50))
+    (tmp_path / "big.bin").write_bytes(blob)
+    sent = []
+    reg = ClientRegistry()
+
+    async def send(message):
+        sent.append(message)
+
+    name = reg.register(name="mac", platform="darwin", capabilities=[],
+                        send=send, chunked_files=True)
+
+    async def scenario():
+        run = asyncio.create_task(reg.run(name, project_root=tmp_path, command="true"))
+        await asyncio.sleep(0)
+        task_id = sent[0]["task_id"]
+        await reg.handle_message(name, {
+            "type": "need", "task_id": task_id, "paths": ["big.bin"],
+        })
+        await reg.handle_message(name, {
+            "type": "result", "task_id": task_id,
+            "ok": True, "returncode": 0, "stdout": "", "stderr": "", "changed": {},
+        })
+        await run
+
+    asyncio.run(scenario())
+    served = [m for m in sent if m.get("path") == "big.bin"]
+    assert [m["type"] for m in served[:1]] == ["file_chunk"]
+    assert served[-1]["type"] == "file_end"
+    rebuilt = b"".join(
+        base64.b64decode(m["data"]) for m in served if m["type"] == "file_chunk"
+    )
+    assert rebuilt == blob
+
+
+def test_old_client_still_gets_one_whole_file_frame(tmp_path):
+    from platform_client import manifest
+
+    blob = bytes(manifest.FILE_CHUNK_BYTES + 50)
+    (tmp_path / "big.bin").write_bytes(blob)
+    sent = []
+    reg, name = _registry_with_client(sent)  # registered without chunked_files
+
+    async def scenario():
+        run = asyncio.create_task(reg.run(name, project_root=tmp_path, command="true"))
+        await asyncio.sleep(0)
+        task_id = sent[0]["task_id"]
+        await reg.handle_message(name, {
+            "type": "need", "task_id": task_id, "paths": ["big.bin"],
+        })
+        await reg.handle_message(name, {
+            "type": "result", "task_id": task_id,
+            "ok": True, "returncode": 0, "stdout": "", "stderr": "", "changed": {},
+        })
+        await run
+
+    asyncio.run(scenario())
+    served = [m for m in sent if m.get("path") == "big.bin"]
+    assert [m["type"] for m in served] == ["file"]  # no splitting for old clients
+    assert base64.b64decode(served[0]["data"]) == blob
+
+
+def test_fetch_reassembles_chunked_files(tmp_path):
+    from platform_client import manifest
+
+    blob = bytes((i * 5) % 256 for i in range(manifest.FILE_CHUNK_BYTES + 10))
+    sent = []
+    reg, name = _registry_with_client(sent)
+
+    async def scenario():
+        fetch = asyncio.create_task(reg.fetch(name, project="proj", paths=["art.bin"]))
+        await asyncio.sleep(0)
+        fid = sent[0]["task_id"]
+        for frame in manifest.file_frames(fid, "art.bin", blob):
+            await reg.handle_message(name, frame)
+        await reg.handle_message(name, {"type": "fetch_done", "task_id": fid})
+        return await fetch
+
+    out = asyncio.run(scenario())
+    assert out["files"] == {"art.bin": blob}
+    assert out["errors"] == {}
+
+
 def test_fetch_fails_on_disconnect(tmp_path):
     sent = []
     reg, name = _registry_with_client(sent)

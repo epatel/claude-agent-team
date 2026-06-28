@@ -10,7 +10,9 @@ whole tree — since there is no commit sha for uncommitted state.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+from collections.abc import Iterator
 from pathlib import Path
 
 # Directory/file names never synced (also never reported as run changes).
@@ -30,6 +32,13 @@ DEFAULT_IGNORES = frozenset(
 
 # Files larger than this are left out of the manifest (and so out of sync).
 MAX_FILE_BYTES = 10_000_000
+
+# Max raw bytes carried per wire frame. A file bigger than this is split into
+# ``file_chunk`` frames (terminated by ``file_end``) so no single WebSocket
+# message — base64 inflates by ~4/3 — approaches the message-size limits that
+# reverse proxies impose between a roaming client and the lab. 512 KiB raw is
+# ~700 KB on the wire, comfortably under a 1 MB proxy cap.
+FILE_CHUNK_BYTES = 512 * 1024
 
 Manifest = dict[str, str]  # relative posix path -> sha256 hex
 
@@ -118,3 +127,27 @@ def delete_files(root: Path, relpaths: list[str]) -> None:
     """Remove files from a mirror (missing ones are ignored; dirs left in place)."""
     for relpath in relpaths:
         _resolve_inside(root, relpath).unlink(missing_ok=True)
+
+
+def file_frames(
+    task_id: str, path: str, data: bytes, *, chunk: bool = True
+) -> Iterator[dict]:
+    """Yield the wire frame(s) that carry ``data`` for ``path`` under ``task_id``.
+
+    A file at or under :data:`FILE_CHUNK_BYTES` (or when ``chunk`` is False, e.g.
+    a peer that hasn't negotiated chunking) goes as one ``file`` frame — the
+    original single-frame shape, so old receivers keep working. A larger file is
+    split into ordered ``file_chunk`` frames (``seq`` 0, 1, …) terminated by a
+    ``file_end`` frame; the receiver concatenates the chunks in arrival order
+    (the socket preserves it) and writes the result. Read errors are not handled
+    here — the caller sends a ``file`` frame with ``data: None`` for those.
+    """
+    if not chunk or len(data) <= FILE_CHUNK_BYTES:
+        yield {"type": "file", "task_id": task_id, "path": path,
+               "data": base64.b64encode(data).decode()}
+        return
+    for seq, start in enumerate(range(0, len(data), FILE_CHUNK_BYTES)):
+        piece = data[start:start + FILE_CHUNK_BYTES]
+        yield {"type": "file_chunk", "task_id": task_id, "path": path,
+               "seq": seq, "data": base64.b64encode(piece).decode()}
+    yield {"type": "file_end", "task_id": task_id, "path": path}

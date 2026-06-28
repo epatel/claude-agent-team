@@ -156,6 +156,9 @@ class ClientRuntime:
             "name": self.name,
             "platform": self.platform,
             "capabilities": self.capabilities,
+            # Tell the lab it may split large synced files into chunk frames;
+            # an older lab ignores this and keeps sending whole ``file`` frames.
+            "chunked_files": True,
         }
         if self.token:
             hello["token"] = self.token
@@ -212,19 +215,32 @@ class ClientRuntime:
         if need:
             await conn.send({"type": "need", "task_id": task_id, "paths": need})
             remaining = set(need)
+            # Partial files arriving as ``file_chunk`` frames, keyed by path until
+            # their ``file_end`` lands (the socket preserves chunk order).
+            partial: dict[str, list[bytes]] = {}
             while remaining:
                 frame = await conn.receive()
-                if frame.get("type") != "file" or frame.get("task_id") != task_id:
+                if frame.get("task_id") != task_id:
                     continue
-                if frame.get("data") is None:
-                    await self._send_result(
-                        conn, task_id, ok=False, returncode=1, stdout="",
-                        stderr=f"sync failed for {frame.get('path')}: {frame.get('error')}",
-                        changed={},
+                ftype = frame.get("type")
+                if ftype == "file_chunk":
+                    partial.setdefault(frame["path"], []).append(
+                        base64.b64decode(frame["data"])
                     )
-                    return
-                manifest.write_file(root, frame["path"], base64.b64decode(frame["data"]))
-                remaining.discard(frame["path"])
+                elif ftype == "file_end":
+                    path = frame["path"]
+                    manifest.write_file(root, path, b"".join(partial.pop(path, [])))
+                    remaining.discard(path)
+                elif ftype == "file":
+                    if frame.get("data") is None:
+                        await self._send_result(
+                            conn, task_id, ok=False, returncode=1, stdout="",
+                            stderr=f"sync failed for {frame.get('path')}: {frame.get('error')}",
+                            changed={},
+                        )
+                        return
+                    manifest.write_file(root, frame["path"], base64.b64decode(frame["data"]))
+                    remaining.discard(frame["path"])
         manifest.delete_files(root, delete)
 
         # Pre-run manifest for the changed-report: without preserve the mirror
@@ -245,16 +261,19 @@ class ClientRuntime:
         task_id = msg["task_id"]
         root = self._mirror_root(msg.get("project"))
         for path in msg.get("paths", []):
-            frame: dict = {"type": "file", "task_id": task_id, "path": path}
             try:
                 data = manifest.read_file(root, path)
-                if len(data) > manifest.MAX_FILE_BYTES:
-                    frame.update(data=None, error=f"file too large ({len(data)} bytes)")
-                else:
-                    frame["data"] = base64.b64encode(data).decode()
             except (OSError, manifest.PathOutsideRoot) as exc:
-                frame.update(data=None, error=str(exc))
-            await conn.send(frame)
+                await conn.send({"type": "file", "task_id": task_id, "path": path,
+                                 "data": None, "error": str(exc)})
+                continue
+            if len(data) > manifest.MAX_FILE_BYTES:
+                await conn.send({"type": "file", "task_id": task_id, "path": path,
+                                 "data": None,
+                                 "error": f"file too large ({len(data)} bytes)"})
+                continue
+            for frame in manifest.file_frames(task_id, path, data):
+                await conn.send(frame)
         await conn.send({"type": "fetch_done", "task_id": task_id})
 
     async def _handle_mirror(self, conn: Connection, msg: dict) -> None:
@@ -336,6 +355,15 @@ class _WsConnection:
         try:
             return json.loads(await self._ws.recv())
         except websockets.ConnectionClosed as exc:
+            # Surface *why* the socket dropped — without this the connect loop
+            # only ever reports a generic "closed", hiding proxy frame-size
+            # kills (1009), idle/abnormal closes (1006), server errors (1011),
+            # etc. Code 1006 with no reason almost always means a reverse proxy
+            # or load balancer cut the connection (frame too big / idle timeout).
+            close = exc.rcvd or exc.sent
+            code = close.code if close else "?"
+            reason = (close.reason if close else "") or "(no reason)"
+            print(f"[platform-client] socket closed: code={code} reason={reason}", flush=True)
             raise ConnectionClosed from exc
 
 
